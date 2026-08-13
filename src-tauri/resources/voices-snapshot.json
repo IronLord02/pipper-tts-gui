@@ -7,6 +7,7 @@
       "language": "en_US",
       "quality": "medium",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx",
@@ -20,6 +21,7 @@
       "language": "en_US",
       "quality": "medium",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx",
@@ -33,6 +35,7 @@
       "language": "en_US",
       "quality": "high",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx",
@@ -59,6 +62,7 @@
       "language": "en_GB",
       "quality": "medium",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx",
@@ -72,6 +76,7 @@
       "language": "en_GB",
       "quality": "high",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/cori/high/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/cori/high/en_GB-cori-high.onnx",
@@ -85,6 +90,7 @@
       "language": "es_ES",
       "quality": "medium",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx",
@@ -98,6 +104,7 @@
       "language": "es_ES",
       "quality": "medium",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx",
@@ -111,6 +118,7 @@
       "language": "fr_FR",
       "quality": "medium",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx",
@@ -124,6 +132,7 @@
       "language": "de_DE",
       "quality": "medium",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx",
@@ -137,6 +146,7 @@
       "language": "it_IT",
       "quality": "x_low",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/riccardo_fasol/x_low/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/riccardo_fasol/x_low/it_IT-riccardo_fasol-x_low.onnx",
@@ -150,6 +160,7 @@
       "language": "pt_BR",
       "quality": "medium",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/faber/medium/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx",
@@ -163,6 +174,7 @@
       "language": "zh_CN",
       "quality": "medium",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx",
@@ -176,6 +188,7 @@
       "language": "ru_RU",
       "quality": "medium",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/denis/medium/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/denis/medium/ru_RU-denis-medium.onnx",
@@ -189,6 +202,7 @@
       "language": "ru_RU",
       "quality": "medium",
       "num_speakers": 1,
+      "sample_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/samples/speaker_0.mp3",
       "files": {
         "model": {
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx",

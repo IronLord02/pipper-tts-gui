@@ -30,6 +30,8 @@ pub struct Voice {
     pub language: String,
     pub quality: String,
     pub num_speakers: u32,
+    /// Hugging Face sample clip; absent for multi-speaker voices (REQ-CAT-5).
+    pub sample_url: Option<String>,
     pub files: VoiceFiles,
 }
 
@@ -59,7 +61,7 @@ pub enum Gender {
     Unknown,
 }
 
-/// Query result: a voice together with its resolved gender.
+/// Query result: a voice together with its resolved gender and sample clip.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct VoiceInfo {
@@ -68,6 +70,7 @@ pub struct VoiceInfo {
     pub quality: String,
     pub num_speakers: u32,
     pub gender: Gender,
+    pub sample_url: Option<String>,
 }
 
 /// Wire shape of the embedded snapshot file (no gender map inside it).
@@ -140,7 +143,28 @@ impl Catalog {
             quality: voice.quality.clone(),
             num_speakers: voice.num_speakers,
             gender: self.gender_of(&voice.id),
+            sample_url: voice.sample_url.clone(),
         }
+    }
+}
+
+/// Command: all languages present in the catalog, sorted (REQ-CAT-6).
+#[tauri::command]
+pub fn catalog_languages(state: tauri::State<'_, crate::state::AppState>) -> Vec<String> {
+    state.catalog.languages()
+}
+
+/// Command: voices for a language, with gender and sample metadata (REQ-CAT-1).
+#[tauri::command]
+pub fn catalog_voices(
+    state: tauri::State<'_, crate::state::AppState>,
+    language: String,
+) -> Result<Vec<VoiceInfo>, String> {
+    let voices = state.catalog.voices_for_language(&language);
+    if voices.is_empty() {
+        Err(format!("no voices for language '{language}'"))
+    } else {
+        Ok(voices)
     }
 }
 
@@ -199,5 +223,43 @@ mod tests {
         assert_eq!(lessac.gender, Gender::Female);
         let thorsten = catalog.voice("de_DE-thorsten-medium").expect("voice exists");
         assert_eq!(thorsten.gender, Gender::Male);
+    }
+
+    #[test]
+    fn multi_speaker_voice_reports_count() {
+        let libritts = catalog().voice("en_US-libritts_r-medium").expect("voice exists");
+        assert!(libritts.num_speakers > 1);
+    }
+
+    #[test]
+    fn single_speaker_voices_report_one() {
+        let catalog = catalog();
+        for voice in catalog.voices.iter() {
+            if voice.id != "en_US-libritts_r-medium" {
+                let info = catalog.voice(&voice.id).expect("voice exists");
+                assert_eq!(info.num_speakers, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn sample_url_present_for_single_speaker_voices() {
+        let catalog = catalog();
+        for voice in catalog.voices.iter() {
+            if voice.num_speakers == 1 {
+                let info = catalog.voice(&voice.id).expect("voice exists");
+                let url = info
+                    .sample_url
+                    .as_ref()
+                    .expect("single-speaker voice should have a sample url");
+                assert!(url.ends_with("/samples/speaker_0.mp3"), "unexpected sample url: {url}");
+            }
+        }
+    }
+
+    #[test]
+    fn sample_url_absent_for_multi_speaker_voice() {
+        let libritts = catalog().voice("en_US-libritts_r-medium").expect("voice exists");
+        assert_eq!(libritts.sample_url, None);
     }
 }
