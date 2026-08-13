@@ -1,0 +1,10 @@
+# Local Pi runtime state
+.atl/
+
+# Node / frontend
+node_modules/
+dist/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
