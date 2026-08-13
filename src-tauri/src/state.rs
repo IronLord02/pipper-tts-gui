@@ -8,6 +8,8 @@
 
 use std::sync::{mpsc, Mutex};
 
+use crate::catalog::Catalog;
+
 /// A registry handle placeholder. Real catalog/library persistence lands in a
 /// later task.
 #[derive(Debug, Default)]
@@ -60,11 +62,23 @@ impl EventChannel {
 }
 
 /// Shared managed state for the application.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct AppState {
     pub registry: RegistryHandle,
     pub settings: Settings,
     pub events: EventChannel,
+    pub catalog: Catalog,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            registry: RegistryHandle::default(),
+            settings: Settings::default(),
+            events: EventChannel::default(),
+            catalog: Catalog::load(),
+        }
+    }
 }
 
 /// Command exposed to the frontend that forwards a generic event through the

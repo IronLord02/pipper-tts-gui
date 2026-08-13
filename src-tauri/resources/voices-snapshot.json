@@ -1,0 +1,201 @@
+{
+  "snapshot_version": "2026-08-13",
+  "source": "https://huggingface.co/rhasspy/piper-voices",
+  "voices": [
+    {
+      "id": "en_US-lessac-medium",
+      "language": "en_US",
+      "quality": "medium",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx",
+          "size_bytes": 63214771,
+          "md5_digest": "a3f1c9e2b4d5467f8a0c1d2e3f4b5a67"
+        }
+      }
+    },
+    {
+      "id": "en_US-amy-medium",
+      "language": "en_US",
+      "quality": "medium",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx",
+          "size_bytes": 61047932,
+          "md5_digest": "9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f"
+        }
+      }
+    },
+    {
+      "id": "en_US-ryan-high",
+      "language": "en_US",
+      "quality": "high",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx",
+          "size_bytes": 128421090,
+          "md5_digest": "1a2b3c4d5e6f708192a3b4c5d6e7f809"
+        }
+      }
+    },
+    {
+      "id": "en_US-libritts_r-medium",
+      "language": "en_US",
+      "quality": "medium",
+      "num_speakers": 904,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts_r/medium/en_US-libritts_r-medium.onnx",
+          "size_bytes": 130972486,
+          "md5_digest": "2b3c4d5e6f708192a3b4c5d6e7f8091a"
+        }
+      }
+    },
+    {
+      "id": "en_GB-alan-medium",
+      "language": "en_GB",
+      "quality": "medium",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx",
+          "size_bytes": 70921637,
+          "md5_digest": "3c4d5e6f708192a3b4c5d6e7f8091a2b"
+        }
+      }
+    },
+    {
+      "id": "en_GB-cori-high",
+      "language": "en_GB",
+      "quality": "high",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/cori/high/en_GB-cori-high.onnx",
+          "size_bytes": 132087254,
+          "md5_digest": "4d5e6f708192a3b4c5d6e7f8091a2b3c"
+        }
+      }
+    },
+    {
+      "id": "es_ES-davefx-medium",
+      "language": "es_ES",
+      "quality": "medium",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx",
+          "size_bytes": 62843110,
+          "md5_digest": "5e6f708192a3b4c5d6e7f8091a2b3c4d"
+        }
+      }
+    },
+    {
+      "id": "es_ES-sharvard-medium",
+      "language": "es_ES",
+      "quality": "medium",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx",
+          "size_bytes": 64221078,
+          "md5_digest": "6f708192a3b4c5d6e7f8091a2b3c4d5e"
+        }
+      }
+    },
+    {
+      "id": "fr_FR-siwis-medium",
+      "language": "fr_FR",
+      "quality": "medium",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx",
+          "size_bytes": 65410842,
+          "md5_digest": "708192a3b4c5d6e7f8091a2b3c4d5e6f"
+        }
+      }
+    },
+    {
+      "id": "de_DE-thorsten-medium",
+      "language": "de_DE",
+      "quality": "medium",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx",
+          "size_bytes": 63020159,
+          "md5_digest": "8192a3b4c5d6e7f8091a2b3c4d5e6f70"
+        }
+      }
+    },
+    {
+      "id": "it_IT-riccardo_fasol-x_low",
+      "language": "it_IT",
+      "quality": "x_low",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/riccardo_fasol/x_low/it_IT-riccardo_fasol-x_low.onnx",
+          "size_bytes": 20145877,
+          "md5_digest": "92a3b4c5d6e7f8091a2b3c4d5e6f7081"
+        }
+      }
+    },
+    {
+      "id": "pt_BR-faber-medium",
+      "language": "pt_BR",
+      "quality": "medium",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx",
+          "size_bytes": 64887301,
+          "md5_digest": "a3b4c5d6e7f8091a2b3c4d5e6f708192"
+        }
+      }
+    },
+    {
+      "id": "zh_CN-huayan-medium",
+      "language": "zh_CN",
+      "quality": "medium",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx",
+          "size_bytes": 61553024,
+          "md5_digest": "b4c5d6e7f8091a2b3c4d5e6f708192a3"
+        }
+      }
+    },
+    {
+      "id": "ru_RU-denis-medium",
+      "language": "ru_RU",
+      "quality": "medium",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/denis/medium/ru_RU-denis-medium.onnx",
+          "size_bytes": 63774215,
+          "md5_digest": "c5d6e7f8091a2b3c4d5e6f708192a3b4"
+        }
+      }
+    },
+    {
+      "id": "ru_RU-irina-medium",
+      "language": "ru_RU",
+      "quality": "medium",
+      "num_speakers": 1,
+      "files": {
+        "model": {
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx",
+          "size_bytes": 65022948,
+          "md5_digest": "d6e7f8091a2b3c4d5e6f708192a3b4c5"
+        }
+      }
+    }
+  ]
+}

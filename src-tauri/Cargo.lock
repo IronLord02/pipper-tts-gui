@@ -54,6 +54,7 @@ dependencies = [
  "dirs",
  "embed-resource",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tempfile",

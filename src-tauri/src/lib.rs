@@ -5,6 +5,7 @@
 //! subsystems on top of. Only the pieces required by this slice are stubbed
 //! here; the real registry is introduced in a later task.
 
+pub mod catalog;
 pub mod paths;
 pub mod state;
 
