@@ -65,13 +65,15 @@ app.innerHTML = `
       </div>
 
       <div class="voice-picker">
-        <span class="voice-picker-label">Voice</span>
-        <div
-          id="voice-list"
-          class="voice-list"
-          role="listbox"
+        <div class="voice-picker-row">
+          <span class="voice-picker-label">Voice</span>
+          <span id="voice-active-label" class="voice-active" hidden>[Active]</span>
+        </div>
+        <select
+          id="voice-select"
+          class="voice-select"
           aria-label="Available voices"
-        ></div>
+        ></select>
       </div>
 
       <div class="actions">
@@ -145,7 +147,8 @@ const chooseDirBtn = document.querySelector<HTMLButtonElement>("#btn-choose-dir"
 const resetDirBtn = document.querySelector<HTMLButtonElement>("#btn-reset-dir")!;
 const modelsDirLabel = document.querySelector<HTMLSpanElement>("#models-dir-label")!;
 const dirStatusEl = document.querySelector<HTMLParagraphElement>("#dir-status")!;
-const voiceList = document.querySelector<HTMLDivElement>("#voice-list")!;
+const voiceSelect = document.querySelector<HTMLSelectElement>("#voice-select")!;
+const voiceActiveLabel = document.querySelector<HTMLSpanElement>("#voice-active-label")!;
 
 let selectedVoiceId: string | null = null;
 
@@ -261,28 +264,18 @@ fileInput.addEventListener("change", () => {
 
 // ---- Models folder picker ----
 
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB"];
-  let value = bytes / 1024;
-  let unit = units[0];
-  for (let i = 1; i < units.length && value >= 1024; i++) {
-    value /= 1024;
-    unit = units[i];
-  }
-  return `${value.toFixed(1)} ${unit}`;
-}
-
 function renderVoiceList(voices: InstalledVoice[]): void {
-  voiceList.replaceChildren();
+  voiceSelect.replaceChildren();
 
   if (voices.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "voice-empty";
+    const empty = document.createElement("option");
+    empty.value = "";
     empty.textContent =
       "No voices found. Choose a folder with model files or read the Help section.";
-    voiceList.appendChild(empty);
+    empty.disabled = true;
+    empty.selected = true;
+    voiceSelect.appendChild(empty);
+    voiceActiveLabel.hidden = true;
     return;
   }
 
@@ -292,59 +285,60 @@ function renderVoiceList(voices: InstalledVoice[]): void {
     selectedVoiceId = null;
   }
 
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select a voice...";
+  placeholder.disabled = true;
+  placeholder.selected = selectedVoiceId === null;
+  voiceSelect.appendChild(placeholder);
+
+  const byLanguage = new Map<string, InstalledVoice[]>();
   for (const voice of voices) {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "voice-row";
-    if (voice.id === selectedVoiceId) {
-      row.classList.add("selected");
+    const language = voice.language || "Unknown";
+    let group = byLanguage.get(language);
+    if (!group) {
+      group = [];
+      byLanguage.set(language, group);
     }
-    row.setAttribute("role", "option");
-    row.setAttribute("aria-selected", String(voice.id === selectedVoiceId));
-
-    const name = document.createElement("span");
-    name.className = "voice-name";
-    name.textContent = voice.display_name;
-
-    const meta = document.createElement("span");
-    meta.className = "voice-meta";
-    const size = document.createElement("span");
-    size.className = "voice-size";
-    size.textContent = formatBytes(voice.size_bytes);
-    meta.appendChild(size);
-    if (voice.quality !== "unknown") {
-      const quality = document.createElement("span");
-      quality.className = "voice-quality";
-      quality.textContent = voice.quality;
-      meta.appendChild(quality);
-    }
-    if (voice.id === selectedVoiceId) {
-      const active = document.createElement("span");
-      active.className = "voice-active";
-      active.textContent = "[Active]";
-      meta.appendChild(active);
-    }
-
-    row.appendChild(name);
-    row.appendChild(meta);
-    row.addEventListener("click", () => {
-      selectedVoiceId = voice.id;
-      renderVoiceList(voices);
-    });
-    voiceList.appendChild(row);
+    group.push(voice);
   }
+
+  for (const [language, languageVoices] of byLanguage) {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = language;
+    for (const voice of languageVoices) {
+      const option = document.createElement("option");
+      option.value = voice.id;
+      option.textContent = voice.display_name;
+      if (voice.id === selectedVoiceId) {
+        option.selected = true;
+      }
+      optgroup.appendChild(option);
+    }
+    voiceSelect.appendChild(optgroup);
+  }
+
+  voiceActiveLabel.hidden = selectedVoiceId === null;
 }
+
+voiceSelect.addEventListener("change", () => {
+  selectedVoiceId = voiceSelect.value || null;
+  voiceActiveLabel.hidden = selectedVoiceId === null;
+});
 
 async function refreshVoices(): Promise<void> {
   try {
     const voices = await invoke<InstalledVoice[]>("list_installed_voices");
     renderVoiceList(voices);
   } catch (error) {
-    voiceList.replaceChildren();
-    const empty = document.createElement("div");
-    empty.className = "voice-empty";
+    voiceSelect.replaceChildren();
+    const empty = document.createElement("option");
+    empty.value = "";
     empty.textContent = `Voice list unavailable: ${String(error)}`;
-    voiceList.appendChild(empty);
+    empty.disabled = true;
+    empty.selected = true;
+    voiceSelect.appendChild(empty);
+    voiceActiveLabel.hidden = true;
   }
 }
 

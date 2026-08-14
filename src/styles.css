@@ -195,74 +195,37 @@ button.secondary:hover {
   margin-top: 1rem;
 }
 
-.voice-picker-label {
-  display: block;
-  font-size: 0.85rem;
-  opacity: 0.75;
+.voice-picker-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
   margin-bottom: 0.4rem;
 }
 
-.voice-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+.voice-picker-label {
+  font-size: 0.85rem;
+  opacity: 0.75;
 }
 
-.voice-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+.voice-select {
   width: 100%;
-  margin: 0;
-  padding: 0.5rem 0.6rem;
-  text-align: left;
+  box-sizing: border-box;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+  border-radius: 0.3rem;
+  font: inherit;
+  color: inherit;
   background: transparent;
 }
 
-.voice-row:hover {
-  background: rgba(128, 128, 128, 0.12);
-}
-
-.voice-row.selected {
-  border-color: #2e9e5b;
-  background: rgba(46, 158, 91, 0.12);
-}
-
-.voice-name {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.voice-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.78rem;
-  white-space: nowrap;
-}
-
-.voice-size {
-  opacity: 0.65;
-}
-
-.voice-quality {
-  padding: 0.05rem 0.4rem;
-  border: 1px solid rgba(128, 128, 128, 0.5);
-  border-radius: 0.8rem;
-  opacity: 0.85;
+.voice-select:focus {
+  outline: 1px solid rgba(128, 128, 128, 0.7);
 }
 
 .voice-active {
   color: #2e9e5b;
-  font-weight: 600;
-}
-
-.voice-empty {
   font-size: 0.85rem;
-  opacity: 0.75;
-  padding: 0.5rem 0;
+  font-weight: 600;
 }
 
 .help-panel {
