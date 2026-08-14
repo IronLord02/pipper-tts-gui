@@ -8,3 +8,10 @@ dist/
 # Rust / Tauri
 src-tauri/target/
 src-tauri/gen/
+
+# Bundled runtime & models (shipped via release ZIP, not in git)
+src-tauri/piper-runtime/
+models/
+test app cpiarl/
+*.zip
+piper-tts-settings.json

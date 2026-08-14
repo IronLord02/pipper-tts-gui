@@ -30,6 +30,10 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-
 md-5 = "0.10"
 # CancellationToken for in-flight download cancellation (REQ-LIB-6).
 tokio-util = { version = "0.7", features = ["rt"] }
+# Native save/open dialogs for the conversion view (frontend @tauri-apps/plugin-dialog).
+tauri-plugin-dialog = "2"
+# Async process spawn + wait timeout for the piper sidecar (synthesis).
+tokio = { version = "1", features = ["process", "time", "io-util"] }
 
 [dev-dependencies]
 tempfile = "3"

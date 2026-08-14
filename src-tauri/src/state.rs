@@ -6,6 +6,7 @@
 //! registry; `EventChannel` provides a thread-safe one-shot event send/receive
 //! used to exercise the plumbing that Tauri's emitter will drive later.
 
+use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,10 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::Catalog;
 use crate::library::Library;
 use crate::paths;
+
+/// Name of the persisted settings file (next to the executable, appdata
+/// fallback). Mirrors the exe-dir resolution pattern of `synth::piper_runtime_dir`.
+const SETTINGS_FILE: &str = "piper-tts-settings.json";
 
 /// User-facing settings. Grows with later slices.
 #[derive(Debug, Default)]
@@ -86,6 +91,10 @@ pub struct AppState {
     /// Proxy selection for model downloads. Wrapped in a mutex because the
     /// frontend can change it at runtime while downloads read it.
     pub proxy: Mutex<ProxyMode>,
+    /// User-chosen models folder (e.g. where the user keeps his voice models).
+    /// `None` means the bundled default from `paths::models_dir()` is active.
+    /// Persisted across sessions via the settings file.
+    pub models_dir_override: Mutex<Option<PathBuf>>,
 }
 
 impl Default for AppState {
@@ -97,8 +106,20 @@ impl Default for AppState {
             catalog: Catalog::load(),
             library: Library::load(storage.path, storage.is_fallback),
             proxy: Mutex::new(ProxyMode::default()),
+            models_dir_override: Mutex::new(load_models_dir_override()),
         }
     }
+}
+
+/// Active models directory: the user-chosen override when set, otherwise the
+/// bundled default from `paths`.
+pub fn models_dir(state: &AppState) -> PathBuf {
+    state
+        .models_dir_override
+        .lock()
+        .ok()
+        .and_then(|override_dir| override_dir.clone())
+        .unwrap_or_else(|| paths::models_dir().path)
 }
 
 /// Read the current proxy mode (frontend settings panel).
@@ -127,6 +148,99 @@ pub fn set_proxy(state: tauri::State<'_, AppState>, mode: ProxyMode) -> Result<(
 #[tauri::command]
 pub fn emit_event(state: tauri::State<'_, AppState>, event: String) -> Result<(), String> {
     state.events.send(event)
+}
+
+/// Path of the persisted settings file: `<exe_dir>/piper-tts-settings.json`,
+/// falling back to `%APPDATA%/piper-tts-gui/piper-tts-settings.json` when the
+/// exe dir cannot be resolved (same pattern as `synth::piper_runtime_dir`).
+pub fn settings_file_path() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.join(SETTINGS_FILE)))
+        .unwrap_or_else(|| {
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("piper-tts-gui")
+                .join(SETTINGS_FILE)
+        })
+}
+
+/// Read the `models_dir` override from a settings file. Missing or corrupt
+/// files (or a `null`/absent value) produce `None`.
+fn load_override_from(file: &Path) -> Option<PathBuf> {
+    let bytes = std::fs::read(file).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    value
+        .get("models_dir")
+        .and_then(|models_dir| models_dir.as_str())
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Write the `models_dir` override to a settings file. `None` persists a
+/// `null` value (the bundled default is restored on next load).
+fn save_override_to(file: &Path, path: Option<&Path>) -> Result<(), String> {
+    let dir = file
+        .parent()
+        .ok_or_else(|| format!("settings path {} has no parent", file.display()))?;
+    std::fs::create_dir_all(dir)
+        .map_err(|error| format!("create {}: {error}", dir.display()))?;
+    let value = serde_json::json!({ "models_dir": path.map(|p| p.to_string_lossy().into_owned()) });
+    let json = serde_json::to_string(&value)
+        .map_err(|error| format!("serialize settings: {error}"))?;
+    std::fs::write(file, json)
+        .map_err(|error| format!("write {}: {error}", file.display()))
+}
+
+/// Load the persisted models-dir override, if any.
+pub fn load_models_dir_override() -> Option<PathBuf> {
+    load_override_from(&settings_file_path())
+}
+
+/// Persist the models-dir override (`None` clears it).
+pub fn save_models_dir_override(path: Option<&Path>) -> Result<(), String> {
+    save_override_to(&settings_file_path(), path)
+}
+
+/// Set the in-memory override and persist it to the given settings file.
+/// Tests pass a temp file so nothing real is written.
+fn apply_models_dir_override(
+    state: &AppState,
+    path: Option<PathBuf>,
+    settings_file: &Path,
+) -> Result<(), String> {
+    save_override_to(settings_file, path.as_deref())?;
+    let mut guard = state
+        .models_dir_override
+        .lock()
+        .map_err(|_| "models dir override lock poisoned".to_string())?;
+    *guard = path;
+    Ok(())
+}
+
+/// Active models directory path (frontend label + scan target).
+#[tauri::command]
+pub fn get_models_dir(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    Ok(models_dir(&state).to_string_lossy().into_owned())
+}
+
+/// Point the app at a user-chosen models folder and remember it.
+#[tauri::command]
+pub fn set_models_dir(state: tauri::State<'_, AppState>, path: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("Models folder path is empty.".to_string());
+    }
+    let dir = PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err(format!("'{path}' is not an existing directory."));
+    }
+    apply_models_dir_override(&state, Some(dir), &settings_file_path())
+}
+
+/// Forget the user-chosen folder and restore the bundled default.
+#[tauri::command]
+pub fn reset_models_dir(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    apply_models_dir_override(&state, None, &settings_file_path())
 }
 
 #[cfg(test)]
@@ -187,5 +301,59 @@ mod tests {
         let payload = "download-progress:42".to_string();
         state.events.send(payload.clone()).expect("send");
         assert_eq!(state.events.recv().expect("recv"), payload);
+    }
+
+    #[test]
+    fn default_has_no_models_dir_override() {
+        let state = AppState::default();
+        // Deterministic: force the override to None so the test does not depend
+        // on whether a settings file exists next to the test binary.
+        *state.models_dir_override.lock().expect("lock") = None;
+        assert!(state.models_dir_override.lock().expect("lock").is_none());
+        assert_eq!(models_dir(&state), paths::models_dir().path);
+    }
+
+    #[test]
+    fn set_and_reset_override_roundtrip() {
+        let state = AppState::default();
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let models = tmp.path().join("my-models");
+        std::fs::create_dir_all(&models).expect("create models dir");
+        let settings_file = tmp.path().join(SETTINGS_FILE);
+
+        assert_eq!(models_dir(&state), paths::models_dir().path);
+
+        apply_models_dir_override(&state, Some(models.clone()), &settings_file).expect("set");
+        assert_eq!(models_dir(&state), models);
+        assert_eq!(load_override_from(&settings_file), Some(models));
+
+        apply_models_dir_override(&state, None, &settings_file).expect("reset");
+        assert_eq!(models_dir(&state), paths::models_dir().path);
+        assert_eq!(load_override_from(&settings_file), None);
+    }
+
+    #[test]
+    fn persistence_loads_and_saves_roundtrip() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let settings_file = tmp.path().join(SETTINGS_FILE);
+        let models = tmp.path().join("models-dir");
+
+        save_override_to(&settings_file, Some(&models)).expect("save");
+        assert_eq!(load_override_from(&settings_file), Some(models));
+
+        // Clearing writes `{"models_dir": null}` and reads back as `None`.
+        save_override_to(&settings_file, None).expect("clear");
+        assert!(settings_file.is_file());
+        assert_eq!(load_override_from(&settings_file), None);
+    }
+
+    #[test]
+    fn persistence_ignores_corrupt_or_missing_file() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        assert_eq!(load_override_from(&tmp.path().join("missing.json")), None);
+
+        let settings_file = tmp.path().join(SETTINGS_FILE);
+        std::fs::write(&settings_file, b"this is not json {").expect("write corrupt");
+        assert_eq!(load_override_from(&settings_file), None);
     }
 }
