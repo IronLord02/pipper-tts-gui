@@ -95,6 +95,8 @@ pub struct AppState {
     /// `None` means the bundled default from `paths::models_dir()` is active.
     /// Persisted across sessions via the settings file.
     pub models_dir_override: Mutex<Option<PathBuf>>,
+    /// Token for the currently running synthesis; cancelled by `cancel_synthesis`.
+    pub synthesis_cancel: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>>,
 }
 
 impl Default for AppState {
@@ -107,6 +109,7 @@ impl Default for AppState {
             library: Library::load(storage.path, storage.is_fallback),
             proxy: Mutex::new(ProxyMode::default()),
             models_dir_override: Mutex::new(load_models_dir_override()),
+            synthesis_cancel: Mutex::new(None),
         }
     }
 }

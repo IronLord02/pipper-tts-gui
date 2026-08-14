@@ -32,8 +32,10 @@ md-5 = "0.10"
 tokio-util = { version = "0.7", features = ["rt"] }
 # Native save/open dialogs for the conversion view (frontend @tauri-apps/plugin-dialog).
 tauri-plugin-dialog = "2"
+# PDF text extraction for the Load file command.
+pdf-extract = "0.8"
 # Async process spawn + wait timeout for the piper sidecar (synthesis).
-tokio = { version = "1", features = ["process", "time", "io-util"] }
+tokio = { version = "1", features = ["process", "time", "io-util", "macros"] }
 
 [dev-dependencies]
 tempfile = "3"

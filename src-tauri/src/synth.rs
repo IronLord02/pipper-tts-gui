@@ -14,6 +14,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use serde::Serialize;
+use tokio_util::sync::CancellationToken;
 
 use crate::paths;
 
@@ -497,31 +498,58 @@ pub async fn synthesize(
         drop(stdin);
     }
 
-    let output = match tokio::time::timeout(PROCESS_TIMEOUT, child.wait_with_output()).await {
-        Ok(Ok(output)) => output,
-        Ok(Err(error)) => {
+    // Store a token for this run so `cancel_synthesis` can interrupt it, then
+    // race the bounded wait against that token. `wait_with_output` consumes
+    // the child, so we use `wait()` and drain stderr separately afterwards.
+    let token = CancellationToken::new();
+    *state.synthesis_cancel.lock().unwrap() = Some(token.clone());
+    let mut child_stderr = child.stderr.take();
+
+    let status = tokio::select! {
+        result = tokio::time::timeout(PROCESS_TIMEOUT, child.wait()) => match result {
+            Ok(Ok(status)) => status,
+            Ok(Err(error)) => {
+                let _ = std::fs::remove_file(&out);
+                return Err(format!("Failed to wait for piper.exe: {error}"));
+            }
+            Err(_) => {
+                let _ = std::fs::remove_file(&out);
+                return Err(
+                    "Piper synthesis timed out after 300 seconds; the partial output was discarded."
+                        .to_string(),
+                );
+            }
+        },
+        _ = token.cancelled() => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
             let _ = std::fs::remove_file(&out);
-            return Err(format!("Failed to wait for piper.exe: {error}"));
-        }
-        Err(_) => {
-            let _ = std::fs::remove_file(&out);
-            return Err(
-                "Piper synthesis timed out after 300 seconds; the partial output was discarded."
-                    .to_string(),
-            );
+            return Err("Synthesis cancelled.".to_string());
         }
     };
 
-    if !output.status.success() {
-        let code = output
-            .status
+    // Drain piper's stderr so the pipe is fully closed and its content is
+    // available for the failure excerpt below.
+    let mut stderr = Vec::new();
+    if let Some(mut stderr_pipe) = child_stderr {
+        use tokio::io::AsyncReadExt;
+        let _ = stderr_pipe.read_to_end(&mut stderr).await;
+    }
+
+    // Clear the stored token once the child has exited. Safe because a new
+    // synthesis only starts after the frontend re-enables the button (busy
+    // flag), and `cancel_synthesis` only acts on the token it takes from here.
+    *state.synthesis_cancel.lock().unwrap() = None;
+
+    if !status.success() {
+        let code = status
             .code()
             .map_or_else(String::new, |code| format!(" (exit code {code})"));
-        let stderr = stderr_excerpt(&output.stderr);
-        let detail = if stderr.is_empty() {
+        let stderr_text = stderr_excerpt(&stderr);
+        let detail = if stderr_text.is_empty() {
             "No error output was captured.".to_string()
         } else {
-            format!("stderr: {stderr}")
+            format!("stderr: {stderr_text}")
         };
         let _ = std::fs::remove_file(&out);
         return Err(format!("Piper failed{code}. {detail}"));
@@ -538,6 +566,20 @@ pub async fn synthesize(
         chars,
     })
     .map_err(|error| format!("failed to serialize synthesis result: {error}"))
+}
+
+/// Frontend command: cancel the in-flight synthesis (if any).
+#[tauri::command]
+pub fn cancel_synthesis(state: tauri::State<'_, crate::state::AppState>) -> Result<(), String> {
+    let token = state
+        .synthesis_cancel
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?
+        .take();
+    if let Some(token) = token {
+        token.cancel();
+    }
+    Ok(())
 }
 
 #[cfg(test)]

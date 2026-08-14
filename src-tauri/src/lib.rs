@@ -10,6 +10,7 @@ pub mod catalog;
 pub mod download;
 pub mod library;
 pub mod paths;
+pub mod pdf;
 pub mod registry;
 pub mod state;
 pub mod synth;
@@ -30,6 +31,9 @@ pub fn run() {
             state::reset_models_dir,
             catalog::catalog_languages,
             catalog::catalog_voices,
+            pdf::extract_pdf_text,
+            pdf::read_text_file,
+            synth::cancel_synthesis,
             synth::estimate_duration,
             synth::list_installed_voices,
             synth::synthesize

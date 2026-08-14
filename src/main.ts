@@ -78,12 +78,12 @@ app.innerHTML = `
 
       <div class="actions">
         <button id="btn-paste" type="button">Paste from clipboard</button>
-        <button id="btn-load" type="button">Load .txt file</button>
+        <button id="btn-load" type="button">Load file...</button>
         <button id="btn-clear" type="button">Clear</button>
         <button id="btn-synthesize" type="button" class="primary">Synthesize</button>
+        <button id="btn-cancel" type="button" class="secondary" disabled>Cancel</button>
         <button id="btn-save-as" type="button">Save WAV as...</button>
       </div>
-      <input id="file-input" type="file" accept=".txt,text/plain" hidden />
 
       <p id="tts-status" class="status" role="status"></p>
       <dl class="result" id="tts-result" hidden>
@@ -141,8 +141,8 @@ const pasteBtn = document.querySelector<HTMLButtonElement>("#btn-paste")!;
 const loadBtn = document.querySelector<HTMLButtonElement>("#btn-load")!;
 const clearBtn = document.querySelector<HTMLButtonElement>("#btn-clear")!;
 const synthesizeBtn = document.querySelector<HTMLButtonElement>("#btn-synthesize")!;
+const cancelBtn = document.querySelector<HTMLButtonElement>("#btn-cancel")!;
 const saveAsBtn = document.querySelector<HTMLButtonElement>("#btn-save-as")!;
-const fileInput = document.querySelector<HTMLInputElement>("#file-input")!;
 const chooseDirBtn = document.querySelector<HTMLButtonElement>("#btn-choose-dir")!;
 const resetDirBtn = document.querySelector<HTMLButtonElement>("#btn-reset-dir")!;
 const modelsDirLabel = document.querySelector<HTMLSpanElement>("#models-dir-label")!;
@@ -165,6 +165,7 @@ function showTtsStatus(message: string, ok: boolean): void {
 function setBusy(busy: boolean): void {
   synthesizeBtn.disabled = busy;
   saveAsBtn.disabled = busy;
+  cancelBtn.disabled = !busy;
   chooseDirBtn.disabled = busy;
   resetDirBtn.disabled = busy;
   synthesizeBtn.textContent = busy ? "Synthesizing..." : "Synthesize";
@@ -230,8 +231,35 @@ pasteBtn.addEventListener("click", async () => {
   }
 });
 
-loadBtn.addEventListener("click", () => {
-  fileInput.click();
+loadBtn.addEventListener("click", async () => {
+  let path: string | null;
+  try {
+    path = await open({
+      multiple: false,
+      title: "Load text or PDF",
+      filters: [
+        { name: "Text or PDF", extensions: ["txt", "pdf"] },
+      ],
+    });
+  } catch (error) {
+    showTtsStatus(`Open dialog failed: ${String(error)}`, false);
+    return;
+  }
+  if (path === null) return;
+  try {
+    const lower = path.toLowerCase();
+    let content: string;
+    if (lower.endsWith(".pdf")) {
+      content = await invoke<string>("extract_pdf_text", { path });
+    } else {
+      content = await invoke<string>("read_text_file", { path });
+    }
+    textArea.value = content;
+    scheduleEstimate();
+    showTtsStatus(`Loaded ${path.split(/[\\/]/).pop()}.`, true);
+  } catch (error) {
+    showTtsStatus(`Could not load file: ${String(error)}`, false);
+  }
 });
 
 clearBtn.addEventListener("click", () => {
@@ -243,23 +271,6 @@ clearBtn.addEventListener("click", () => {
   resultBox.hidden = true;
   showTtsStatus("Text cleared.", true);
   textArea.focus();
-});
-
-fileInput.addEventListener("change", () => {
-  const file = fileInput.files?.[0];
-  fileInput.value = "";
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const content = typeof reader.result === "string" ? reader.result : "";
-    textArea.value = content;
-    scheduleEstimate();
-    showTtsStatus(`Loaded ${file.name}.`, true);
-  };
-  reader.onerror = () => {
-    showTtsStatus("Failed to read the file.", false);
-  };
-  reader.readAsText(file);
 });
 
 // ---- Models folder picker ----
@@ -425,7 +436,12 @@ async function synthesizeTo(outPath: string | null): Promise<void> {
     succeeded = true;
   } catch (error) {
     resultBox.hidden = true;
-    showTtsStatus(`Synthesis failed: ${String(error)}`, false);
+    const message = String(error);
+    if (message.toLowerCase().includes("cancelled")) {
+      showTtsStatus("Synthesis cancelled.", false);
+    } else {
+      showTtsStatus(`Synthesis failed: ${message}`, false);
+    }
   } finally {
     setBusy(false);
     if (succeeded) {
@@ -436,6 +452,15 @@ async function synthesizeTo(outPath: string | null): Promise<void> {
 
 synthesizeBtn.addEventListener("click", () => {
   void synthesizeTo(null);
+});
+
+cancelBtn.addEventListener("click", async () => {
+  try {
+    await invoke("cancel_synthesis");
+    showTtsStatus("Cancelling...", true);
+  } catch (error) {
+    showTtsStatus(`Cancel failed: ${String(error)}`, false);
+  }
 });
 
 saveAsBtn.addEventListener("click", async () => {
