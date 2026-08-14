@@ -22,9 +22,20 @@ tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
+# Streaming downloads (REQ-LIB-3..6). rustls + webpki roots avoids OpenSSL /
+# schannel assumptions on the GNU/MinGW toolchain; tests use a local HTTP
+# server, the TLS backend is for the real HuggingFace URLs at runtime.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "stream"] }
+# md5 verification of downloaded models against the catalog snapshot (REQ-LIB-4).
+md-5 = "0.10"
+# CancellationToken for in-flight download cancellation (REQ-LIB-6).
+tokio-util = { version = "0.7", features = ["rt"] }
 
 [dev-dependencies]
 tempfile = "3"
+# Async runtime for the download tests, including the tiny local HTTP server
+# (T-08 accept criteria).
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "time"] }
 
 [profile.release]
 codegen-units = 1

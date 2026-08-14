@@ -1,21 +1,16 @@
 //! Shared application state and event channel wiring.
 //!
-//! `AppState` is created once per window and stored as managed state. The
-//! registry handle is a placeholder until the persistence layer lands in a
-//! later task; `settings` holds user-facing configuration; `EventChannel`
-//! provides a thread-safe one-shot event send/receive used to exercise the
-//! plumbing that Tauri's emitter will drive later.
+//! `AppState` is created once per window and stored as managed state.
+//! `settings` holds user-facing configuration; `catalog` the embedded voice
+//! catalog; `library` the installed-model library with its persistent
+//! registry; `EventChannel` provides a thread-safe one-shot event send/receive
+//! used to exercise the plumbing that Tauri's emitter will drive later.
 
 use std::sync::{mpsc, Mutex};
 
 use crate::catalog::Catalog;
-
-/// A registry handle placeholder. Real catalog/library persistence lands in a
-/// later task.
-#[derive(Debug, Default)]
-pub struct RegistryHandle {
-    pub version: u32,
-}
+use crate::library::Library;
+use crate::paths;
 
 /// User-facing settings. Grows with later slices.
 #[derive(Debug, Default)]
@@ -64,19 +59,20 @@ impl EventChannel {
 /// Shared managed state for the application.
 #[derive(Debug)]
 pub struct AppState {
-    pub registry: RegistryHandle,
     pub settings: Settings,
     pub events: EventChannel,
     pub catalog: Catalog,
+    pub library: Library,
 }
 
 impl Default for AppState {
     fn default() -> Self {
+        let storage = paths::models_dir();
         Self {
-            registry: RegistryHandle::default(),
             settings: Settings::default(),
             events: EventChannel::default(),
             catalog: Catalog::load(),
+            library: Library::load(storage.path, storage.is_fallback),
         }
     }
 }
@@ -95,9 +91,10 @@ mod tests {
     #[test]
     fn state_constructs_with_defaults() {
         let state = AppState::default();
-        assert_eq!(state.registry.version, 0);
         assert_eq!(state.settings.last_voice, None);
         assert!(!state.settings.autoplay);
+        // No models recorded anywhere yet -> nothing installed.
+        assert!(state.library.installed_ids().is_empty());
     }
 
     #[test]
