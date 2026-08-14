@@ -23,6 +23,8 @@ pub fn run() {
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             state::emit_event,
+            state::get_proxy,
+            state::set_proxy,
             catalog::catalog_languages,
             catalog::catalog_voices
         ])

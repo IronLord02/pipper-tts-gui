@@ -20,9 +20,11 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-use reqwest::Client;
+use reqwest::{Client, Proxy};
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
+
+use crate::state::ProxyMode;
 
 /// Progress snapshot emitted after every received chunk (REQ-LIB-3).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -62,15 +64,29 @@ impl DownloadError {
 /// A fresh client per call keeps tests hermetic (no connection pooling across
 /// independent test servers) at negligible cost for one-shot downloads.
 ///
-/// `.no_proxy()` forces direct connections: the local test server must never
-/// be routed through a system/environment proxy (a proxied environment would
-/// answer 503 for `127.0.0.1`), and model downloads go straight to the
-/// HuggingFace host.
-fn client() -> Client {
-    Client::builder()
-        .no_proxy()
-        .build()
-        .expect("reqwest client build")
+/// The proxy selection honors the runtime setting (REQ-LIB-3):
+/// - `ProxyMode::None` forces direct connections (`.no_proxy()`), so a local
+///   test server is never routed through a system/environment proxy (a proxied
+///   environment would answer 503 for `127.0.0.1`).
+/// - `ProxyMode::System` lets reqwest use the environment proxy configuration.
+/// - `ProxyMode::Manual { host, port }` routes through the given proxy.
+fn client(proxy: &ProxyMode) -> Client {
+    let mut builder = Client::builder();
+    match proxy {
+        ProxyMode::None => {
+            builder = builder.no_proxy();
+        }
+        ProxyMode::System => {
+            // reqwest honors HTTP_PROXY/HTTPS_PROXY by default.
+        }
+        ProxyMode::Manual { host, port } => {
+            let proxy_url = format!("http://{host}:{port}");
+            builder = builder.proxy(
+                Proxy::all(&proxy_url).unwrap_or_else(|_| panic!("invalid proxy url: {proxy_url}")),
+            );
+        }
+    }
+    builder.build().expect("reqwest client build")
 }
 
 /// Single download attempt (REQ-LIB-3, REQ-LIB-4, REQ-LIB-6).
@@ -82,6 +98,7 @@ pub async fn download(
     url: &str,
     dest: &Path,
     expected_md5: Option<&str>,
+    proxy: &ProxyMode,
     token: &CancellationToken,
     mut on_progress: impl FnMut(DownloadProgress),
 ) -> Result<(), DownloadError> {
@@ -89,7 +106,7 @@ pub async fn download(
         return Err(DownloadError::Cancelled);
     }
 
-    let mut response = client()
+    let mut response = client(proxy)
         .get(url)
         .send()
         .await
@@ -153,6 +170,7 @@ pub async fn download_with_retry(
     url: &str,
     dest: &Path,
     expected_md5: Option<&str>,
+    proxy: &ProxyMode,
     token: &CancellationToken,
     max_attempts: usize,
     mut on_progress: impl FnMut(DownloadProgress),
@@ -163,7 +181,7 @@ pub async fn download_with_retry(
             return Err(DownloadError::Cancelled);
         }
         attempts += 1;
-        match download(url, dest, expected_md5, token, &mut on_progress).await {
+        match download(url, dest, expected_md5, proxy, token, &mut on_progress).await {
             Ok(()) => return Ok(()),
             Err(DownloadError::Cancelled) => return Err(DownloadError::Cancelled),
             Err(err) => {
@@ -224,6 +242,12 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::*;
+    use crate::state::ProxyMode;
+
+    /// Direct connection mode used by the mock-server tests.
+    fn no_proxy() -> ProxyMode {
+        ProxyMode::None
+    }
 
     /// Hex-encoded md5 of a byte slice (test helper).
     fn md5_hex(bytes: &[u8]) -> String {
@@ -322,6 +346,7 @@ mod tests {
             &format!("http://{addr}/en_US-lessac-medium.onnx"),
             &dest,
             Some(&expected_md5),
+            &no_proxy(),
             &token,
             |p| progress.push(p),
         )
@@ -359,6 +384,7 @@ mod tests {
             &format!("http://{addr}/model.onnx"),
             &dest,
             Some("00000000000000000000000000000000"), // wrong md5
+            &no_proxy(),
             &token,
             |_| {},
         )
@@ -382,6 +408,7 @@ mod tests {
             &format!("http://{addr}/model.onnx"),
             &dest,
             Some(&expected_md5),
+            &no_proxy(),
             &token,
             3,
             |_| {},
@@ -404,6 +431,7 @@ mod tests {
             &format!("http://{addr}/model.onnx"),
             &dest,
             None,
+            &no_proxy(),
             &token,
             2,
             |_| {},
@@ -429,6 +457,7 @@ mod tests {
             &format!("http://{addr}/model.onnx"),
             &dest,
             Some(&md5_hex(&body)),
+            &no_proxy(),
             &cancel_token,
             |p| {
                 observed.push(p.bytes_done);
@@ -456,6 +485,7 @@ mod tests {
             "http://127.0.0.1:9/unused.onnx",
             &tmp.path().join("model.onnx"),
             None,
+            &no_proxy(),
             &token,
             |_| {},
         )
@@ -479,6 +509,7 @@ mod tests {
             &format!("http://{addr}/model.onnx"),
             &dest,
             Some(&md5_hex(&body)),
+            &no_proxy(),
             &token,
             |p| {
                 let _ = channel.send(format!(
@@ -498,5 +529,47 @@ mod tests {
         let total: u64 = fields[2].parse().expect("bytes total numeric");
         assert_eq!(total, body.len() as u64);
         assert!(done <= total);
+    }
+
+    #[tokio::test]
+    async fn manual_proxy_routes_through_proxy_host_and_port() {
+        // A proxy that answers any request with the body (acts as a dumb HTTP
+        // forward proxy). The download must reach it, never the target host.
+        let body: Vec<u8> = b"proxied payload ".repeat(1000);
+        let (proxy_addr, proxy_requests) = spawn_test_server(body.clone(), 0, 0).await;
+        let (target_addr, target_requests) = spawn_test_server(Vec::new(), 0, 0).await;
+
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let dest = tmp.path().join("model.onnx");
+        let token = CancellationToken::new();
+        let proxy = ProxyMode::Manual {
+            host: "127.0.0.1".to_string(),
+            port: proxy_addr.port(),
+        };
+
+        download(
+            // Target URL points at the OTHER server; with a manual proxy the
+            // request must go to proxy_addr instead.
+            &format!("http://{target_addr}/model.onnx"),
+            &dest,
+            Some(&md5_hex(&body)),
+            &proxy,
+            &token,
+            |_| {},
+        )
+        .await
+        .expect("download through manual proxy");
+
+        assert_eq!(
+            proxy_requests.load(Ordering::SeqCst),
+            1,
+            "proxy must receive the download request"
+        );
+        assert_eq!(
+            target_requests.load(Ordering::SeqCst),
+            0,
+            "target host must never be contacted directly when a proxy is set"
+        );
+        assert_eq!(std::fs::read(&dest).expect("file on disk"), body);
     }
 }

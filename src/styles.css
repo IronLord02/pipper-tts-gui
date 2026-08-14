@@ -23,3 +23,91 @@ body {
   opacity: 0.7;
   max-width: 40rem;
 }
+
+.panel {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 0.5rem;
+  max-width: 32rem;
+  text-align: left;
+}
+
+.panel h2 {
+  margin-top: 0;
+}
+
+.hint {
+  opacity: 0.75;
+  font-size: 0.9rem;
+  margin-top: 0;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0.5rem 0;
+  cursor: pointer;
+}
+
+.row input[type="radio"] {
+  margin-top: 0.2rem;
+}
+
+.manual-fields {
+  display: flex;
+  gap: 0.75rem;
+  margin: 0.75rem 0 0;
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.manual-fields.enabled {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.manual-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  flex: 1;
+}
+
+.manual-fields input {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+  border-radius: 0.3rem;
+  font: inherit;
+}
+
+button {
+  margin-top: 1rem;
+  padding: 0.45rem 1rem;
+  border-radius: 0.3rem;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  background: rgba(128, 128, 128, 0.12);
+}
+
+.status {
+  font-size: 0.85rem;
+  margin: 0.6rem 0 0;
+  min-height: 1.2em;
+}
+
+.status[data-ok="true"] {
+  color: #2e9e5b;
+}
+
+.status[data-ok="false"] {
+  color: #d04848;
+}
