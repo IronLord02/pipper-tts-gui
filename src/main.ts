@@ -77,6 +77,7 @@ app.innerHTML = `
       <div class="actions">
         <button id="btn-paste" type="button">Paste from clipboard</button>
         <button id="btn-load" type="button">Load .txt file</button>
+        <button id="btn-clear" type="button">Clear</button>
         <button id="btn-synthesize" type="button" class="primary">Synthesize</button>
         <button id="btn-save-as" type="button">Save WAV as...</button>
       </div>
@@ -136,6 +137,7 @@ const resultDuration = document.querySelector<HTMLElement>("#result-duration")!;
 const resultPath = document.querySelector<HTMLElement>("#result-path")!;
 const pasteBtn = document.querySelector<HTMLButtonElement>("#btn-paste")!;
 const loadBtn = document.querySelector<HTMLButtonElement>("#btn-load")!;
+const clearBtn = document.querySelector<HTMLButtonElement>("#btn-clear")!;
 const synthesizeBtn = document.querySelector<HTMLButtonElement>("#btn-synthesize")!;
 const saveAsBtn = document.querySelector<HTMLButtonElement>("#btn-save-as")!;
 const fileInput = document.querySelector<HTMLInputElement>("#file-input")!;
@@ -227,6 +229,17 @@ pasteBtn.addEventListener("click", async () => {
 
 loadBtn.addEventListener("click", () => {
   fileInput.click();
+});
+
+clearBtn.addEventListener("click", () => {
+  textArea.value = "";
+  charCount.textContent = "0";
+  estimateEl.textContent = "0.0";
+  processEstimateEl.textContent = "0.0";
+  lastProcessEstimate = null;
+  resultBox.hidden = true;
+  showTtsStatus("Text cleared.", true);
+  textArea.focus();
 });
 
 fileInput.addEventListener("change", () => {

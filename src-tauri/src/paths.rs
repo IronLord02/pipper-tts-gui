@@ -11,6 +11,10 @@
 //! as the best-effort detection layer.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Sequence counter so concurrent probes never touch the same marker file.
+static PROBE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Resolved model storage location.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,12 +31,15 @@ pub struct ModelStorage {
 /// The directory is created if missing; a marker file is then written, read
 /// back and byte-compared, and finally removed. The read-back is deliberate
 /// (F4): virtualization overlays can make a plain write report success while
-/// the file is not actually readable at the same path.
+/// the file is not actually readable at the same path. The marker name embeds
+/// a sequence number so concurrent probes (parallel tests, concurrent Tauri
+/// commands) never collide on the same file.
 fn probe_writable(dir: &Path) -> bool {
     if std::fs::create_dir_all(dir).is_err() {
         return false;
     }
-    let probe = dir.join(format!("piper-probe-{}.tmp", std::process::id()));
+    let seq = PROBE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let probe = dir.join(format!("piper-probe-{}-{seq}.tmp", std::process::id()));
     let payload: &[u8] = b"piper-tts-gui-probe";
     let written = std::fs::write(&probe, payload).is_ok();
     let read_back = written

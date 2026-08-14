@@ -316,6 +316,8 @@ mod tests {
     #[test]
     fn set_and_reset_override_roundtrip() {
         let state = AppState::default();
+        // Deterministic start: force no override (see default_has_no_models_dir_override).
+        *state.models_dir_override.lock().expect("lock") = None;
         let tmp = tempfile::tempdir().expect("temp dir");
         let models = tmp.path().join("my-models");
         std::fs::create_dir_all(&models).expect("create models dir");
