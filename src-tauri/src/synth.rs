@@ -6,8 +6,10 @@
 //! model files are looked up in the models storage location (see `paths`).
 //!
 //! `estimate_duration` predicts audio and wall time before a run; `synthesize`
-//! spawns piper, feeds the text on stdin, waits with a bounded timeout, and
-//! parses the real duration from the produced WAV header.
+//! splits the input into sentences, spawns piper once per sentence into a
+//! staging WAV, emits a `synthesis-progress` event after each one so the GUI
+//! can show real (determinate) progress, merges the same-format WAV parts,
+//! and parses the real duration from the merged header.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -339,6 +341,179 @@ pub fn parse_wav_duration_secs(data: &[u8]) -> f64 {
     }
 }
 
+/// Split `text` into sentence-sized chunks for per-sentence synthesis.
+///
+/// A chunk breaks after sentence-ending punctuation (`.`, `!`, `?`, `…`) when
+/// it is followed by whitespace, and at every newline (so pasted paragraph
+/// breaks become chunk boundaries too). The punctuation stays attached to the
+/// preceding chunk and surrounding whitespace is trimmed. Empty or
+/// whitespace-only input yields an empty vec. Decimal numbers are not split
+/// because a digit after the dot resets the pending terminator.
+pub fn split_sentences(text: &str) -> Vec<String> {
+    let mut sentences: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut pending_terminator = false;
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        current.push(ch);
+
+        // Hard break: paragraphs / pasted line breaks. Consecutive CR/LF are
+        // swallowed so CRLF files do not produce empty chunks.
+        if ch == '\n' || ch == '\r' {
+            let trimmed = current.trim().to_string();
+            if !trimmed.is_empty() {
+                sentences.push(trimmed);
+            }
+            current.clear();
+            pending_terminator = false;
+            while matches!(chars.peek(), Some('\r') | Some('\n')) {
+                chars.next();
+            }
+            continue;
+        }
+
+        if matches!(ch, '.' | '!' | '?' | '…') {
+            pending_terminator = true;
+            continue;
+        }
+
+        // A terminator only cuts when whitespace follows: "3.14" and "etc."
+        // followed by a letter stay in one chunk.
+        if pending_terminator && ch.is_whitespace() {
+            let trimmed = current.trim().to_string();
+            if !trimmed.is_empty() {
+                sentences.push(trimmed);
+            }
+            current.clear();
+            pending_terminator = false;
+            while chars.peek().is_some_and(|next| next.is_whitespace()) {
+                chars.next();
+            }
+            continue;
+        }
+
+        pending_terminator = false;
+    }
+
+    let tail = current.trim().to_string();
+    if !tail.is_empty() {
+        sentences.push(tail);
+    }
+    sentences
+}
+
+/// Locate the `data` chunk payload inside a WAV file: `(payload_offset,
+/// payload_len)` in bytes, or `None` when the file is not a RIFF/WAVE stream
+/// with a `data` chunk. Walks chunk headers without reading the payload.
+fn wav_data_layout(path: &Path) -> Result<Option<(u64, u64)>, String> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = std::fs::File::open(path)
+        .map_err(|error| format!("open {}: {error}", path.display()))?;
+    let file_len = file
+        .metadata()
+        .map_err(|error| format!("stat {}: {error}", path.display()))?
+        .len();
+
+    let mut head = [0u8; 12];
+    file.read_exact(&mut head)
+        .map_err(|error| format!("read {} header: {error}", path.display()))?;
+    if &head[0..4] != b"RIFF" || &head[8..12] != b"WAVE" {
+        return Ok(None);
+    }
+
+    let mut pos: u64 = 12;
+    while pos + 8 <= file_len {
+        file.seek(SeekFrom::Start(pos))
+            .map_err(|error| format!("seek {}: {error}", path.display()))?;
+        let mut chunk = [0u8; 8];
+        file.read_exact(&mut chunk)
+            .map_err(|error| format!("read {} chunk: {error}", path.display()))?;
+        let size = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as u64;
+        if &chunk[0..4] == b"data" {
+            return Ok(Some((pos + 8, size)));
+        }
+        pos += 8 + size + (size % 2);
+    }
+    Ok(None)
+}
+
+/// Merge same-format WAV files (one per synthesized sentence) into a single
+/// WAV at `out`. Every sentence rendered by the same voice model is PCM with
+/// an identical `fmt ` layout, so only the `data` payloads need concatenating.
+/// The first part's header is kept (RIFF size patched) and each following
+/// part's payload is appended. Returns the merged file size in bytes.
+fn merge_wav_parts(parts: &[PathBuf], out: &Path) -> Result<u64, String> {
+    use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+
+    if parts.is_empty() {
+        return Err("no WAV parts to merge".to_string());
+    }
+
+    let mut layouts = Vec::with_capacity(parts.len());
+    let mut total_data: u64 = 0;
+    for part in parts {
+        let layout = wav_data_layout(part)?.ok_or_else(|| {
+            format!("{} is not a WAV file with a data chunk", part.display())
+        })?;
+        total_data += layout.1;
+        layouts.push(layout);
+    }
+
+    if parts.len() == 1 {
+        std::fs::copy(&parts[0], out)
+            .map_err(|error| format!("copy {}: {error}", parts[0].display()))?;
+        return std::fs::metadata(out)
+            .map(|meta| meta.len())
+            .map_err(|error| format!("stat {}: {error}", out.display()));
+    }
+
+    // Keep the first part's full header (everything before its data payload)
+    // and patch the RIFF size so it covers all appended payloads.
+    let header_len = layouts[0].0 as usize;
+    let mut header = vec![0u8; header_len];
+    {
+        let mut first = std::fs::File::open(&parts[0])
+            .map_err(|error| format!("open {}: {error}", parts[0].display()))?;
+        first
+            .read_exact(&mut header)
+            .map_err(|error| format!("read {} header: {error}", parts[0].display()))?;
+    }
+    let merged_size = header.len() as u64 + total_data;
+    if header.len() >= 8 {
+        header[4..8].copy_from_slice(&((merged_size - 8) as u32).to_le_bytes());
+    }
+    // The data chunk header is the last chunk before the payload: its size
+    // field must cover every appended payload, not just the first part's.
+    let data_size_field = layouts[0].0 as usize;
+    if data_size_field >= 4 && data_size_field <= header.len() {
+        header[data_size_field - 4..data_size_field]
+            .copy_from_slice(&(total_data as u32).to_le_bytes());
+    }
+
+    let mut out_file = BufWriter::new(std::fs::File::create(out).map_err(|error| {
+        format!("create {}: {error}", out.display())
+    })?);
+    out_file
+        .write_all(&header)
+        .map_err(|error| format!("write {} header: {error}", out.display()))?;
+
+    for (part, layout) in parts.iter().zip(&layouts) {
+        let mut src = std::fs::File::open(part)
+            .map_err(|error| format!("open {}: {error}", part.display()))?;
+        src.seek(SeekFrom::Start(layout.0))
+            .map_err(|error| format!("seek {}: {error}", part.display()))?;
+        let mut payload = src.take(layout.1);
+        std::io::copy(&mut payload, &mut out_file)
+            .map_err(|error| format!("merge {}: {error}", part.display()))?;
+    }
+    out_file
+        .flush()
+        .map_err(|error| format!("flush {}: {error}", out.display()))?;
+    Ok(merged_size)
+}
+
 /// Estimate payload returned by `estimate_duration`.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -370,6 +545,17 @@ pub struct SynthesisResult {
     pub audio_secs: f64,
     pub estimated_audio_secs: f64,
     pub chars: usize,
+}
+
+/// Per-sentence progress emitted on the `synthesis-progress` event while
+/// `synthesize` runs. `done` counts completed sentences (0 before the first
+/// one), `percent` is `done / total * 100`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SynthesisProgress {
+    pub done: usize,
+    pub total: usize,
+    pub percent: f64,
 }
 
 /// Default output directory: `<exe_dir>/output`, so user-generated WAVs land
@@ -412,16 +598,119 @@ fn stderr_excerpt(stderr: &[u8]) -> String {
         .collect()
 }
 
-/// Run piper for `text`, writing a WAV to `out_path` (or to the app's default
-/// output directory next to the executable when `None`), and report the
-/// produced file with its real audio duration.
+/// Run piper once for a single sentence, writing a WAV to `out`. Feeds the
+/// text on stdin, waits with a bounded timeout, races against the shared
+/// cancellation token, and maps failures to user-facing messages.
+async fn run_piper_sentence(
+    runtime: &Path,
+    onnx: &Path,
+    json: &Path,
+    text: &str,
+    out: &Path,
+    token: &CancellationToken,
+) -> Result<(), String> {
+    let mut command = tokio::process::Command::new(runtime.join(PIPER_EXE));
+    command
+        .arg("-m")
+        .arg(onnx)
+        .arg("-c")
+        .arg(json)
+        .arg("-f")
+        .arg(out)
+        .arg("--espeak_data")
+        .arg(runtime.join("espeak-ng-data"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    // CREATE_NO_WINDOW hides the piper console window so no terminal flashes
+    // open on Windows while synthesis runs. Non-Windows targets are unchanged.
+    #[cfg(windows)]
+    {
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Failed to start piper.exe: {error}"))?;
+
+    // Feed the text and close stdin (EOF) so piper starts synthesizing.
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        if let Err(error) = stdin.write_all(text.as_bytes()).await {
+            let _ = std::fs::remove_file(out);
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(format!("Failed to write text to piper: {error}"));
+        }
+        drop(stdin);
+    }
+
+    let child_stderr = child.stderr.take();
+
+    let status = tokio::select! {
+        result = tokio::time::timeout(PROCESS_TIMEOUT, child.wait()) => match result {
+            Ok(Ok(status)) => status,
+            Ok(Err(error)) => {
+                let _ = std::fs::remove_file(out);
+                return Err(format!("Failed to wait for piper.exe: {error}"));
+            }
+            Err(_) => {
+                let _ = std::fs::remove_file(out);
+                return Err(
+                    "Piper synthesis timed out after 300 seconds; the partial output was discarded."
+                        .to_string(),
+                );
+            }
+        },
+        _ = token.cancelled() => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            let _ = std::fs::remove_file(out);
+            return Err("Synthesis cancelled.".to_string());
+        }
+    };
+
+    // Drain piper's stderr so the pipe is fully closed and its content is
+    // available for the failure excerpt below.
+    let mut stderr = Vec::new();
+    if let Some(mut stderr_pipe) = child_stderr {
+        use tokio::io::AsyncReadExt;
+        let _ = stderr_pipe.read_to_end(&mut stderr).await;
+    }
+
+    if !status.success() {
+        let code = status
+            .code()
+            .map_or_else(String::new, |code| format!(" (exit code {code})"));
+        let stderr_text = stderr_excerpt(&stderr);
+        let detail = if stderr_text.is_empty() {
+            "No error output was captured.".to_string()
+        } else {
+            format!("stderr: {stderr_text}")
+        };
+        let _ = std::fs::remove_file(out);
+        return Err(format!("Piper failed{code}. {detail}"));
+    }
+
+    Ok(())
+}
+
+/// Split `text` into sentences, run piper once per sentence into a staging
+/// WAV, emit a `synthesis-progress` event after each one, merge the
+/// same-format parts into `out` (or the app's default output directory when
+/// `None`), and report the produced file with its real audio duration.
 #[tauri::command]
 pub async fn synthesize(
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::state::AppState>,
     text: String,
     out_path: Option<String>,
     voice_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    use tauri::Emitter;
+
     if text.trim().is_empty() {
         return Err("No text to synthesize.".to_string());
     }
@@ -430,6 +719,11 @@ pub async fn synthesize(
         return Err(format!(
             "Text is too long ({chars} characters); the limit is {MAX_INPUT_CHARS}."
         ));
+    }
+
+    let sentences = split_sentences(&text);
+    if sentences.is_empty() {
+        return Err("No text to synthesize.".to_string());
     }
 
     let runtime = piper_runtime_dir().ok_or_else(|| {
@@ -460,80 +754,47 @@ pub async fn synthesize(
         }
     };
 
-    let mut command = tokio::process::Command::new(runtime.join(PIPER_EXE));
-    command
-        .arg("-m")
-        .arg(&onnx)
-        .arg("-c")
-        .arg(&json)
-        .arg("-f")
-        .arg(&out)
-        .arg("--espeak_data")
-        .arg(runtime.join("espeak-ng-data"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    // Stage one WAV per sentence in a temp dir; TempDir removes everything on
+    // drop, including every error path below.
+    let staging = tempfile::tempdir()
+        .map_err(|error| format!("Cannot create staging directory: {error}"))?;
 
-    // CREATE_NO_WINDOW hides the piper console window so no terminal flashes
-    // open on Windows while synthesis runs. Non-Windows targets are unchanged.
-    #[cfg(windows)]
-    {
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("Failed to start piper.exe: {error}"))?;
-
-    // Feed the text and close stdin (EOF) so piper starts synthesizing.
-    if let Some(mut stdin) = child.stdin.take() {
-        use tokio::io::AsyncWriteExt;
-        if let Err(error) = stdin.write_all(text.as_bytes()).await {
-            let _ = std::fs::remove_file(&out);
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            return Err(format!("Failed to write text to piper: {error}"));
-        }
-        drop(stdin);
-    }
-
-    // Store a token for this run so `cancel_synthesis` can interrupt it, then
-    // race the bounded wait against that token. `wait_with_output` consumes
-    // the child, so we use `wait()` and drain stderr separately afterwards.
+    // Store a token for this run so `cancel_synthesis` can interrupt it.
     let token = CancellationToken::new();
     *state.synthesis_cancel.lock().unwrap() = Some(token.clone());
-    let mut child_stderr = child.stderr.take();
 
-    let status = tokio::select! {
-        result = tokio::time::timeout(PROCESS_TIMEOUT, child.wait()) => match result {
-            Ok(Ok(status)) => status,
-            Ok(Err(error)) => {
-                let _ = std::fs::remove_file(&out);
-                return Err(format!("Failed to wait for piper.exe: {error}"));
-            }
-            Err(_) => {
-                let _ = std::fs::remove_file(&out);
-                return Err(
-                    "Piper synthesis timed out after 300 seconds; the partial output was discarded."
-                        .to_string(),
-                );
-            }
-        },
-        _ = token.cancelled() => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            let _ = std::fs::remove_file(&out);
-            return Err("Synthesis cancelled.".to_string());
-        }
+    let total = sentences.len();
+    let emit_progress = |done: usize| -> Result<(), String> {
+        let percent = if total == 0 {
+            0.0
+        } else {
+            done as f64 / total as f64 * 100.0
+        };
+        app.emit(
+            "synthesis-progress",
+            SynthesisProgress {
+                done,
+                total,
+                percent,
+            },
+        )
+        .map_err(|error| format!("failed to emit synthesis progress: {error}"))
     };
 
-    // Drain piper's stderr so the pipe is fully closed and its content is
-    // available for the failure excerpt below.
-    let mut stderr = Vec::new();
-    if let Some(mut stderr_pipe) = child_stderr {
-        use tokio::io::AsyncReadExt;
-        let _ = stderr_pipe.read_to_end(&mut stderr).await;
+    // Tell the frontend the sentence count before any audio is generated.
+    emit_progress(0)?;
+
+    let mut parts: Vec<PathBuf> = Vec::with_capacity(total);
+    for (index, sentence) in sentences.iter().enumerate() {
+        if token.is_cancelled() {
+            *state.synthesis_cancel.lock().unwrap() = None;
+            return Err("Synthesis cancelled.".to_string());
+        }
+
+        let part = staging.path().join(format!("{index:04}.wav"));
+        run_piper_sentence(&runtime, &onnx, &json, sentence, &part, &token).await?;
+        parts.push(part);
+        emit_progress(index + 1)?;
     }
 
     // Clear the stored token once the child has exited. Safe because a new
@@ -541,19 +802,7 @@ pub async fn synthesize(
     // flag), and `cancel_synthesis` only acts on the token it takes from here.
     *state.synthesis_cancel.lock().unwrap() = None;
 
-    if !status.success() {
-        let code = status
-            .code()
-            .map_or_else(String::new, |code| format!(" (exit code {code})"));
-        let stderr_text = stderr_excerpt(&stderr);
-        let detail = if stderr_text.is_empty() {
-            "No error output was captured.".to_string()
-        } else {
-            format!("stderr: {stderr_text}")
-        };
-        let _ = std::fs::remove_file(&out);
-        return Err(format!("Piper failed{code}. {detail}"));
-    }
+    merge_wav_parts(&parts, &out)?;
 
     let wav = std::fs::read(&out)
         .map_err(|error| format!("Piper exited successfully but the WAV could not be read: {error}"))?;
@@ -906,5 +1155,105 @@ mod tests {
         assert_eq!(path.parent(), Some(out_dir.as_path()));
         assert!(path.file_name().unwrap().to_string_lossy().starts_with("piper-tts-"));
         assert!(path.to_string_lossy().ends_with(".wav"));
+    }
+
+    #[test]
+    fn split_sentences_splits_on_punctuation_and_keeps_it() {
+        let sentences = split_sentences("Hola mundo. ¿Cómo estás? ¡Genial!");
+        assert_eq!(sentences, vec!["Hola mundo.", "¿Cómo estás?", "¡Genial!"]);
+    }
+
+    #[test]
+    fn split_sentences_splits_on_newlines() {
+        let sentences = split_sentences("Primera línea\nSegunda línea.\r\nTercera.");
+        assert_eq!(sentences, vec!["Primera línea", "Segunda línea.", "Tercera."]);
+    }
+
+    #[test]
+    fn split_sentences_does_not_split_decimal_numbers_or_abbreviations_in_text() {
+        let sentences = split_sentences("El valor es 3.14 y termina aquí. Fin.");
+        assert_eq!(sentences, vec!["El valor es 3.14 y termina aquí.", "Fin."]);
+    }
+
+    #[test]
+    fn split_sentences_handles_ellipsis_and_trimming() {
+        let sentences = split_sentences("  Uno... Dos!!  Tres?  ");
+        assert_eq!(sentences, vec!["Uno...", "Dos!!", "Tres?"]);
+    }
+
+    #[test]
+    fn split_sentences_empty_or_whitespace_only_yields_empty() {
+        assert!(split_sentences("").is_empty());
+        assert!(split_sentences("   \n\t  ").is_empty());
+    }
+
+    #[test]
+    fn split_sentences_no_terminators_yields_single_chunk() {
+        let sentences = split_sentences("una sola oración sin puntuación");
+        assert_eq!(sentences, vec!["una sola oración sin puntuación"]);
+    }
+
+    #[test]
+    fn merge_wav_parts_concatenates_pcm_payloads() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let part_a = tmp.path().join("a.wav");
+        let part_b = tmp.path().join("b.wav");
+        let merged = tmp.path().join("merged.wav");
+
+        let mut data_a = build_wav_header(16000, 1, 16, 8000);
+        data_a.extend_from_slice(&[0xAA; 8000]);
+        std::fs::write(&part_a, &data_a).expect("write part a");
+
+        let mut data_b = build_wav_header(16000, 1, 16, 16000);
+        data_b.extend_from_slice(&[0xBB; 16000]);
+        std::fs::write(&part_b, &data_b).expect("write part b");
+
+        let size = merge_wav_parts(&[part_a, part_b], &merged).expect("merge");
+        assert_eq!(size, data_a.len() as u64 + 16000);
+
+        let bytes = std::fs::read(&merged).expect("read merged");
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(&bytes[8..12], b"WAVE");
+        assert_eq!(
+            u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as u64,
+            size - 8
+        );
+        // Duration of the merged stream is the sum of the parts.
+        assert!((parse_wav_duration_secs(&bytes) - 0.75).abs() < 1e-9);
+        // The data payload is exactly part A's payload followed by part B's.
+        let data_pos = bytes
+            .windows(4)
+            .position(|window| window == b"data")
+            .map(|pos| pos + 8)
+            .expect("data chunk");
+        let payload = &bytes[data_pos..];
+        assert_eq!(payload.len(), 24000);
+        assert!(payload[..8000].iter().all(|byte| *byte == 0xAA));
+        assert!(payload[8000..].iter().all(|byte| *byte == 0xBB));
+    }
+
+    #[test]
+    fn merge_wav_parts_single_part_copies_file() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let part = tmp.path().join("single.wav");
+        let merged = tmp.path().join("merged.wav");
+        let mut wav = build_wav_header(16000, 1, 16, 4000);
+        wav.extend_from_slice(&[0x11; 4000]);
+        std::fs::write(&part, &wav).expect("write part");
+
+        let size = merge_wav_parts(&[part], &merged).expect("merge");
+        assert_eq!(size, wav.len() as u64);
+        let bytes = std::fs::read(&merged).expect("read merged");
+        assert_eq!(bytes, wav);
+    }
+
+    #[test]
+    fn merge_wav_parts_rejects_non_wav_input() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let garbage = tmp.path().join("garbage.bin");
+        let merged = tmp.path().join("merged.wav");
+        std::fs::write(&garbage, b"this is not a wav").expect("write garbage");
+        let error = merge_wav_parts(&[garbage], &merged).expect_err("must fail");
+        assert!(error.contains("not a WAV"), "unexpected error: {error}");
     }
 }

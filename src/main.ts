@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 interface DurationEstimate {
@@ -12,6 +13,12 @@ interface SynthesisResult {
   audio_secs: number;
   estimated_audio_secs: number;
   chars: number;
+}
+
+interface SynthesisProgress {
+  done: number;
+  total: number;
+  percent: number;
 }
 
 interface InstalledVoice {
@@ -45,8 +52,9 @@ app.innerHTML = `
       </p>
 
       <div class="progress" id="tts-progress" hidden>
-        <div class="progress-fill"></div>
+        <div class="progress-fill indeterminate"></div>
       </div>
+      <p class="progress-label" id="tts-progress-label" hidden></p>
 
       <div class="folder-picker">
         <div class="folder-picker-row">
@@ -133,6 +141,8 @@ const charCount = document.querySelector<HTMLSpanElement>("#tts-chars")!;
 const estimateEl = document.querySelector<HTMLSpanElement>("#tts-estimate")!;
 const processEstimateEl = document.querySelector<HTMLSpanElement>("#tts-estimate-process")!;
 const progressEl = document.querySelector<HTMLDivElement>("#tts-progress")!;
+const progressFillEl = document.querySelector<HTMLDivElement>(".progress-fill")!;
+const progressLabelEl = document.querySelector<HTMLParagraphElement>("#tts-progress-label")!;
 const ttsStatusEl = document.querySelector<HTMLParagraphElement>("#tts-status")!;
 const resultBox = document.querySelector<HTMLDListElement>("#tts-result")!;
 const resultDuration = document.querySelector<HTMLElement>("#result-duration")!;
@@ -170,7 +180,29 @@ function setBusy(busy: boolean): void {
   resetDirBtn.disabled = busy;
   synthesizeBtn.textContent = busy ? "Synthesizing..." : "Synthesize";
   progressEl.hidden = !busy;
+  if (busy) {
+    // Start indeterminate; the first synthesis-progress event switches the
+    // bar to determinate with a real percentage.
+    progressFillEl.classList.add("indeterminate");
+    progressFillEl.style.width = "";
+    progressLabelEl.hidden = true;
+  } else {
+    progressLabelEl.hidden = true;
+  }
 }
+
+// Real per-sentence progress from the backend: fills the bar and shows which
+// sentence is being synthesized.
+void listen<SynthesisProgress>("synthesis-progress", (event) => {
+  const progress = event.payload;
+  progressFillEl.classList.remove("indeterminate");
+  progressFillEl.style.width = `${progress.percent}%`;
+  progressLabelEl.hidden = false;
+  progressLabelEl.textContent =
+    progress.done === 0
+      ? `Synthesizing ${progress.total} sentence${progress.total === 1 ? "" : "s"}...`
+      : `Sentence ${progress.done} of ${progress.total} — ${Math.round(progress.percent)}%`;
+});
 
 let doneFlashTimer: number | undefined;
 

@@ -119,9 +119,17 @@ button:hover {
   top: 0;
   bottom: 0;
   left: 0;
-  width: 40%;
+  width: 0;
   border-radius: 0.25rem;
   background: #2e9e5b;
+  transition: width 0.25s ease;
+}
+
+/* Shown only before the first synthesis-progress event arrives; the backend
+   switches the bar to a determinate percentage as soon as it can. */
+.progress-fill.indeterminate {
+  width: 40%;
+  transition: none;
   animation: indeterminate 1.2s ease-in-out infinite;
 }
 
@@ -132,6 +140,16 @@ button:hover {
   to {
     transform: translateX(300%);
   }
+}
+
+.progress-label {
+  font-size: 0.8rem;
+  opacity: 0.75;
+  margin: 0.35rem 0 0;
+}
+
+.progress-label[hidden] {
+  display: none;
 }
 
 .actions {

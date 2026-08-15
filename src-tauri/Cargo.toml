@@ -36,9 +36,10 @@ tauri-plugin-dialog = "2"
 pdf-extract = "0.8"
 # Async process spawn + wait timeout for the piper sidecar (synthesis).
 tokio = { version = "1", features = ["process", "time", "io-util", "macros"] }
+# Per-sentence temp WAV staging for real synthesis progress (auto-cleanup).
+tempfile = "3"
 
 [dev-dependencies]
-tempfile = "3"
 # Async runtime for the download tests, including the tiny local HTTP server
 # (T-08 accept criteria).
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "time"] }
