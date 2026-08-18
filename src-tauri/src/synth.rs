@@ -19,13 +19,15 @@ use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
 use crate::paths;
+use crate::state::AppState;
 
 /// Name of the piper CLI executable inside the runtime directory.
 const PIPER_EXE: &str = "piper.exe";
 /// Voice model base name; both `<name>.onnx` and `<name>.onnx.json` are used.
 const VOICE_MODEL: &str = "es_ES-carlfm-x_low";
 /// Hard cap on accepted input size (characters) to guard against runaway jobs.
-const MAX_INPUT_CHARS: usize = 100_000;
+/// Over-limit queue items are synthesized in chunks, never silently truncated.
+pub const MAX_INPUT_CHARS: usize = 100_000;
 /// Wall-clock budget for a single piper run.
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(300);
 /// Empirical real-time factor: wall time is ~0.06x the audio duration
@@ -444,7 +446,10 @@ fn wav_data_layout(path: &Path) -> Result<Option<(u64, u64)>, String> {
 /// an identical `fmt ` layout, so only the `data` payloads need concatenating.
 /// The first part's header is kept (RIFF size patched) and each following
 /// part's payload is appended. Returns the merged file size in bytes.
-fn merge_wav_parts(parts: &[PathBuf], out: &Path) -> Result<u64, String> {
+///
+/// `pub(crate)` so the item queue can merge per-chunk WAVs for
+/// over-limit items.
+pub(crate) fn merge_wav_parts(parts: &[PathBuf], out: &Path) -> Result<u64, String> {
     use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 
     if parts.is_empty() {
@@ -562,7 +567,7 @@ pub struct SynthesisProgress {
 /// next to the app instead of inside the models folder (which the user should
 /// never have to touch). Falls back to the current directory when the exe dir
 /// cannot be resolved.
-fn default_output_dir() -> PathBuf {
+pub(crate) fn default_output_dir() -> PathBuf {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(|parent| parent.to_path_buf()));
@@ -587,6 +592,23 @@ fn default_output_path(out_dir: &Path) -> PathBuf {
         counter += 1;
     }
     path
+}
+
+/// Resolve a unique output path for a user-chosen base name inside `dir`:
+/// ensure the directory exists and pick a unique filename (`<name>.wav`, then
+/// `<name>-1.wav`, `<name>-2.wav`, ... when the file already exists). Used by
+/// the queue for text items that have no PDF directory to write next to, and
+/// for every queue item when a global output folder is set.
+pub(crate) fn output_path_in_dir(dir: &Path, name: &str) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir)
+        .map_err(|error| format!("Cannot create output directory: {error}"))?;
+    let mut path = dir.join(format!("{name}.wav"));
+    let mut counter = 1u32;
+    while path.exists() {
+        path = dir.join(format!("{name}-{counter}.wav"));
+        counter += 1;
+    }
+    Ok(path)
 }
 
 /// Trimmed, truncated copy of piper's stderr for user-facing errors.
@@ -697,23 +719,25 @@ async fn run_piper_sentence(
     Ok(())
 }
 
-/// Split `text` into sentences, run piper once per sentence into a staging
-/// WAV, emit a `synthesis-progress` event after each one, merge the
-/// same-format parts into `out` (or the app's default output directory when
-/// `None`), and report the produced file with its real audio duration.
-#[tauri::command]
-pub async fn synthesize(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, crate::state::AppState>,
-    text: String,
-    out_path: Option<String>,
-    voice_id: Option<String>,
-) -> Result<serde_json::Value, String> {
-    use tauri::Emitter;
-
-    if text.trim().is_empty() {
-        return Err("No text to synthesize.".to_string());
-    }
+/// Core synthesis pipeline shared by the `synthesize` command and the item
+/// queue.
+///
+/// Splits `text` into sentences, runs piper once per sentence into a staging
+/// WAV (racing against `token` for cancellation), merges the same-format parts
+/// into `out` (or the app's default output directory when `out_path` is
+/// `None`), and reports the produced file with its real audio duration.
+///
+/// `on_progress` is invoked as `(done, total)` after every sentence; the
+/// convert panel passes a closure that emits `synthesis-progress`, while the
+/// queue passes `None` so it never disturbs the convert panel's bar.
+pub(crate) async fn synthesize_to_path(
+    state: &AppState,
+    text: &str,
+    out_path: Option<&str>,
+    voice_id: Option<&str>,
+    token: &CancellationToken,
+    on_progress: Option<Box<dyn Fn(usize, usize) -> Result<(), String> + Send + Sync>>,
+) -> Result<SynthesisResult, String> {
     let chars = text.chars().count();
     if chars > MAX_INPUT_CHARS {
         return Err(format!(
@@ -721,7 +745,7 @@ pub async fn synthesize(
         ));
     }
 
-    let sentences = split_sentences(&text);
+    let sentences = split_sentences(text);
     if sentences.is_empty() {
         return Err("No text to synthesize.".to_string());
     }
@@ -729,8 +753,8 @@ pub async fn synthesize(
     let runtime = piper_runtime_dir().ok_or_else(|| {
         "Piper runtime not found. Expected piper.exe under <app>/piper-runtime.".to_string()
     })?;
-    let models_dir = crate::state::models_dir(&state);
-    let voice = voice_id.as_deref().unwrap_or(VOICE_MODEL);
+    let models_dir = crate::state::models_dir(state);
+    let voice = voice_id.unwrap_or(VOICE_MODEL);
     let (onnx, json) = model_files_for(&models_dir, voice).ok_or_else(|| {
         format!(
             "Voice '{voice}' is not installed. Place {voice}.onnx and {voice}.onnx.json in the models directory."
@@ -759,48 +783,24 @@ pub async fn synthesize(
     let staging = tempfile::tempdir()
         .map_err(|error| format!("Cannot create staging directory: {error}"))?;
 
-    // Store a token for this run so `cancel_synthesis` can interrupt it.
-    let token = CancellationToken::new();
-    *state.synthesis_cancel.lock().unwrap() = Some(token.clone());
-
     let total = sentences.len();
-    let emit_progress = |done: usize| -> Result<(), String> {
-        let percent = if total == 0 {
-            0.0
-        } else {
-            done as f64 / total as f64 * 100.0
-        };
-        app.emit(
-            "synthesis-progress",
-            SynthesisProgress {
-                done,
-                total,
-                percent,
-            },
-        )
-        .map_err(|error| format!("failed to emit synthesis progress: {error}"))
-    };
-
-    // Tell the frontend the sentence count before any audio is generated.
-    emit_progress(0)?;
+    if let Some(emit) = on_progress.as_ref() {
+        emit(0, total)?;
+    }
 
     let mut parts: Vec<PathBuf> = Vec::with_capacity(total);
     for (index, sentence) in sentences.iter().enumerate() {
         if token.is_cancelled() {
-            *state.synthesis_cancel.lock().unwrap() = None;
             return Err("Synthesis cancelled.".to_string());
         }
 
         let part = staging.path().join(format!("{index:04}.wav"));
-        run_piper_sentence(&runtime, &onnx, &json, sentence, &part, &token).await?;
+        run_piper_sentence(&runtime, &onnx, &json, sentence, &part, token).await?;
         parts.push(part);
-        emit_progress(index + 1)?;
+        if let Some(emit) = on_progress.as_ref() {
+            emit(index + 1, total)?;
+        }
     }
-
-    // Clear the stored token once the child has exited. Safe because a new
-    // synthesis only starts after the frontend re-enables the button (busy
-    // flag), and `cancel_synthesis` only acts on the token it takes from here.
-    *state.synthesis_cancel.lock().unwrap() = None;
 
     merge_wav_parts(&parts, &out)?;
 
@@ -808,13 +808,89 @@ pub async fn synthesize(
         .map_err(|error| format!("Piper exited successfully but the WAV could not be read: {error}"))?;
     let audio_secs = parse_wav_duration_secs(&wav);
 
-    serde_json::to_value(SynthesisResult {
+    Ok(SynthesisResult {
         wav_path: out.to_string_lossy().into_owned(),
         audio_secs,
         estimated_audio_secs: estimate_audio_secs(chars),
         chars,
     })
-    .map_err(|error| format!("failed to serialize synthesis result: {error}"))
+}
+
+/// Frontend command: synthesize `text` to `out_path` (or the default output
+/// directory), emitting a `synthesis-progress` event after each sentence.
+/// Serialized against the queue via the shared `synthesis_busy` flag:
+/// only one piper job may run at a time.
+#[tauri::command]
+pub async fn synthesize(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    text: String,
+    out_path: Option<String>,
+    voice_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    use tauri::Emitter;
+
+    if text.trim().is_empty() {
+        return Err("No text to synthesize.".to_string());
+    }
+
+    // Serialize against the queue: only one piper job at a time. The
+    // guard is scoped so it is released before any await below.
+    {
+        let mut busy = state
+            .synthesis_busy
+            .lock()
+            .map_err(|_| "state lock poisoned".to_string())?;
+        if *busy {
+            return Err(
+                "Synthesis is already running (queue active). Stop the queue first.".to_string(),
+            );
+        }
+        *busy = true;
+    }
+
+    // Store a token for this run so `cancel_synthesis` can interrupt it.
+    let token = CancellationToken::new();
+    *state.synthesis_cancel.lock().unwrap() = Some(token.clone());
+
+    let on_progress: Box<dyn Fn(usize, usize) -> Result<(), String> + Send + Sync> =
+        Box::new(move |done: usize, total: usize| -> Result<(), String> {
+            let percent = if total == 0 {
+                0.0
+            } else {
+                done as f64 / total as f64 * 100.0
+            };
+            app.emit(
+                "synthesis-progress",
+                SynthesisProgress {
+                    done,
+                    total,
+                    percent,
+                },
+            )
+            .map_err(|error| format!("failed to emit synthesis progress: {error}"))
+        });
+
+    let result = synthesize_to_path(
+        &state,
+        &text,
+        out_path.as_deref(),
+        voice_id.as_deref(),
+        &token,
+        Some(on_progress),
+    )
+    .await;
+
+    // Clear the stored token and free the shared busy flag. Safe because the
+    // busy flag prevents a new run from starting until this one finished, and
+    // `cancel_synthesis` only acts on the token it takes from here.
+    *state.synthesis_cancel.lock().unwrap() = None;
+    *state.synthesis_busy.lock().unwrap() = false;
+
+    result.map(|result| {
+        serde_json::to_value(result)
+            .map_err(|error| format!("failed to serialize synthesis result: {error}"))
+    })?
 }
 
 /// Frontend command: cancel the in-flight synthesis (if any).

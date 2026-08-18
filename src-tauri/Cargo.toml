@@ -38,6 +38,10 @@ pdf-extract = "0.8"
 tokio = { version = "1", features = ["process", "time", "io-util", "macros"] }
 # Per-sentence temp WAV staging for real synthesis progress (auto-cleanup).
 tempfile = "3"
+# Local WAV -> MP3 conversion: the LAME encoder is compiled from source into
+# the binary (no external ffmpeg/lame binary), so the same build works on
+# Windows, Linux, and macOS.
+mp3lame-encoder = "0.2"
 
 [dev-dependencies]
 # Async runtime for the download tests, including the tiny local HTTP server
