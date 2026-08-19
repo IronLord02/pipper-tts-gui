@@ -1,0 +1,4 @@
+# Linux piper runtime: keep byte-for-byte (no CRLF normalization).
+# espeak-ng-data contains both binary and text data; any line-ending change
+# can break phonemization on the target distro.
+runtimes/linux-x86_64/** -text

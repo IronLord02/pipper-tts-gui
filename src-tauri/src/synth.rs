@@ -13,6 +13,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -22,7 +23,11 @@ use crate::paths;
 use crate::state::AppState;
 
 /// Name of the piper CLI executable inside the runtime directory.
+/// Windows ships `piper.exe`; Linux and macOS ship a bare `piper` binary.
+#[cfg(windows)]
 const PIPER_EXE: &str = "piper.exe";
+#[cfg(not(windows))]
+const PIPER_EXE: &str = "piper";
 /// Voice model base name; both `<name>.onnx` and `<name>.onnx.json` are used.
 const VOICE_MODEL: &str = "es_ES-carlfm-x_low";
 /// Hard cap on accepted input size (characters) to guard against runaway jobs.
@@ -42,6 +47,19 @@ fn find_piper_in(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBu
     candidates
         .into_iter()
         .find(|dir| dir.join(PIPER_EXE).is_file())
+}
+
+/// Tauri resource directory (`app.path().resource_dir()`), injected at app
+/// setup. Bundled resources (the Linux piper runtime under `piper-runtime/`)
+/// live there. AppImage binaries run from a read-only `/tmp/.mount_*` folder,
+/// so `current_exe` is useless inside a package; the resource dir is the one
+/// authoritative location the bundler controls.
+static RESOURCE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Set the Tauri resource directory at app setup. Calling this twice is a
+/// no-op (the first value wins).
+pub fn set_resource_dir(dir: Option<PathBuf>) {
+    let _ = RESOURCE_DIR.set(dir);
 }
 
 /// Find `piper.exe` recursively under `dir` (bounded depth), returning the
@@ -82,8 +100,14 @@ fn resolve_runtime_from(exe_dir: &Path, manifest_dir: Option<&Path>) -> Option<P
     find_piper_in(candidates).or_else(|| find_piper_recursive(exe_dir))
 }
 
-/// Directory holding the bundled piper CLI, or `None` when `piper.exe` is not
-/// present next to the running executable nor under the crate manifest dir.
+/// Directory holding the bundled piper CLI, or `None` when `piper` is not
+/// present next to the running executable, under the crate manifest dir, nor
+/// in the Tauri resource directory.
+///
+/// Candidate order: exe dir (portable installs), crate manifest dir (dev /
+/// `cargo test`), then the Tauri resource dir (packaged Linux AppImage/deb,
+/// where `current_exe` points at a read-only mount and the bundled runtime is
+/// a `bundle.resources` target).
 pub fn piper_runtime_dir() -> Option<PathBuf> {
     let exe_dir = std::env::current_exe()
         .ok()
@@ -91,12 +115,18 @@ pub fn piper_runtime_dir() -> Option<PathBuf> {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
         .ok()
         .map(PathBuf::from);
+
     match exe_dir {
         Some(dir) => resolve_runtime_from(&dir, manifest_dir.as_deref()),
         None => find_piper_in(
             manifest_dir.into_iter().map(|dir| dir.join("piper-runtime")),
         ),
     }
+    .or_else(|| {
+        let resource = RESOURCE_DIR.get().and_then(|dir| dir.as_ref())?;
+        let candidate = resource.join("piper-runtime");
+        candidate.join(PIPER_EXE).is_file().then_some(candidate)
+    })
 }
 
 /// The voice model pair `(onnx, json)` for `voice` anywhere under `dir`
@@ -565,16 +595,21 @@ pub struct SynthesisProgress {
 
 /// Default output directory: `<exe_dir>/output`, so user-generated WAVs land
 /// next to the app instead of inside the models folder (which the user should
-/// never have to touch). Falls back to the current directory when the exe dir
-/// cannot be resolved.
+/// never have to touch). Falls back to the platform user data dir when the exe
+/// dir is not writable — packaged AppImages run from a read-only mount, so the
+/// fallback keeps output writable without user intervention.
 pub(crate) fn default_output_dir() -> PathBuf {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(|parent| parent.to_path_buf()));
-    exe_dir
-        .unwrap_or_else(|| {
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-        })
+    if let Some(dir) = exe_dir.as_ref() {
+        if paths::probe_writable(dir) {
+            return dir.join("output");
+        }
+    }
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("piper-tts-gui")
         .join("output")
 }
 
@@ -751,7 +786,7 @@ pub(crate) async fn synthesize_to_path(
     }
 
     let runtime = piper_runtime_dir().ok_or_else(|| {
-        "Piper runtime not found. Expected piper.exe under <app>/piper-runtime.".to_string()
+        "Piper runtime not found. Expected the piper binary under <app>/piper-runtime.".to_string()
     })?;
     let models_dir = crate::state::models_dir(state);
     let voice = voice_id.unwrap_or(VOICE_MODEL);

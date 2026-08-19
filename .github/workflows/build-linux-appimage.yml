@@ -1,0 +1,42 @@
+name: build-linux-appimage
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Git on Windows cannot store the exec bit, so the bundled piper ELF must
+      # get it back before linuxdeploy packages the AppImage. Without it the
+      # runtime binary ships non-executable and synthesis fails with EACCES.
+      - name: Make piper runtime executable
+        run: chmod +x runtimes/linux-x86_64/piper
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build AppImage
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: --bundles appimage
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: piper-tts-reader-appimage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error

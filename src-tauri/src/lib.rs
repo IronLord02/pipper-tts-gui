@@ -17,6 +17,8 @@ pub mod registry;
 pub mod state;
 pub mod synth;
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = state::AppState::default();
@@ -26,6 +28,14 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(app_state)
+        .setup(|app| {
+            // Packaged Linux builds bundle the piper runtime under the Tauri
+            // resource dir (see tauri.conf.json bundle.resources); AppImage
+            // runs from a read-only mount where current_exe is not searchable,
+            // so synth::piper_runtime_dir() needs this authoritative path.
+            synth::set_resource_dir(app.path().resource_dir().ok());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             state::emit_event,
             state::get_models_dir,

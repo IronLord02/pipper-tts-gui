@@ -34,7 +34,10 @@ pub struct ModelStorage {
 /// the file is not actually readable at the same path. The marker name embeds
 /// a sequence number so concurrent probes (parallel tests, concurrent Tauri
 /// commands) never collide on the same file.
-fn probe_writable(dir: &Path) -> bool {
+///
+/// `pub(crate)` so packaged-app paths (settings file, default output dir) can
+/// share the same read-only-detection logic used by the models directory.
+pub(crate) fn probe_writable(dir: &Path) -> bool {
     if std::fs::create_dir_all(dir).is_err() {
         return false;
     }

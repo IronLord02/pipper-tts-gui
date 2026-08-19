@@ -250,18 +250,23 @@ pub fn emit_event(state: tauri::State<'_, AppState>, event: String) -> Result<()
 }
 
 /// Path of the persisted settings file: `<exe_dir>/piper-tts-settings.json`,
-/// falling back to `%APPDATA%/piper-tts-gui/piper-tts-settings.json` when the
-/// exe dir cannot be resolved (same pattern as `synth::piper_runtime_dir`).
+/// falling back to `<data_dir>/piper-tts-gui/piper-tts-settings.json` when the
+/// exe dir is not writable or cannot be resolved (AppImage packages run from a
+/// read-only mount; the `paths` probe detects it the same way as the models
+/// directory).
 pub fn settings_file_path() -> PathBuf {
-    std::env::current_exe()
+    let exe_dir = std::env::current_exe()
         .ok()
-        .and_then(|path| path.parent().map(|parent| parent.join(SETTINGS_FILE)))
-        .unwrap_or_else(|| {
-            dirs::data_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("piper-tts-gui")
-                .join(SETTINGS_FILE)
-        })
+        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()));
+    if let Some(dir) = exe_dir.as_ref() {
+        if paths::probe_writable(dir) {
+            return dir.join(SETTINGS_FILE);
+        }
+    }
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("piper-tts-gui")
+        .join(SETTINGS_FILE)
 }
 
 /// Persisted user settings. Keys are additive and optional: missing or `null`
