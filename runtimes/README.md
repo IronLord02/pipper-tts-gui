@@ -6,12 +6,13 @@ never mixes binaries from another operating system.
 | Folder | Target | Status |
 |--------|--------|--------|
 | `win-x86_64/` | Windows x64 | Lives in `test app cpiarl/piper-runtime` (working) |
-| `linux-x86_64/` | Linux x64 (AppImage) | To be populated (see `plans/appimage-plan.txt`) |
+| `linux-x86_64/` | Linux x64 (portable tarball) | Populated (working) |
 | `macos-aarch64/` | macOS arm64 (future) | Not started |
 
-The bundled `piper-runtime` next to the Windows exe stays untouched. A Linux
-build copies its runtime from `linux-x86_64/` into the AppImage bundle
-(location per `src-tauri/src/synth.rs` runtime resolution), never the reverse.
+The bundled `piper-runtime` next to the Windows exe stays untouched. The Linux
+packaging workflow copies `linux-x86_64/` into the portable tarball as
+`piper-runtime/` (next to the app binary, same layout as the Windows zip), per
+`src-tauri/src/synth.rs` runtime resolution — never the reverse.
 
 ## Expected layout of `linux-x86_64/`
 
@@ -31,3 +32,11 @@ linux-x86_64/
 ```
 
 The voice models (`.onnx` + `.onnx.json`) are pure data and work on every OS.
+
+## Packaging
+
+The GitHub workflow `.github/workflows/build-linux-tarball.yml` builds the app
+with `--no-bundle`, copies this folder into the package as `piper-runtime/`,
+copies `models/` as `models/`, adds `run.sh`, and produces
+`Piper-TTS-Reader-linux-x86_64.tar.gz`. `run.sh` sets `LD_LIBRARY_PATH` so the
+bundled piper finds its `.so` libraries.

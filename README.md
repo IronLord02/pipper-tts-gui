@@ -1,6 +1,6 @@
 # Piper TTS Reader
 
-A portable, fully offline text-to-speech reader for Windows, built with
+A portable, fully offline text-to-speech reader for Windows and Linux, built with
 [Tauri v2](https://tauri.app) and [Piper](https://github.com/rhasspy/piper).
 
 Paste text or load a `.txt` file, pick a voice, and synthesize it to a WAV
@@ -10,9 +10,22 @@ file — no internet, no accounts, no installation.
 
 Grab the latest release: [Releases](https://github.com/IronLord02/pipper-tts-gui/releases)
 
+### Windows
+
 1. Download `pipper-tts-reader-windows.zip`
 2. Extract it anywhere (a USB stick works fine)
 3. Run `Piper TTS Reader.exe`
+
+### Linux (x86_64)
+
+1. Download `Piper-TTS-Reader-linux-x86_64.tar.gz`
+2. Extract it anywhere: `tar -xzf Piper-TTS-Reader-linux-x86_64.tar.gz`
+3. Run the launcher: `./run.sh`
+
+Everything ships in the folder — the app, the piper runtime and the voice
+models. The only system requirement is WebKitGTK 4.1; `run.sh` detects your
+distribution and prints the exact install command (Debian/Ubuntu, Fedora/RHEL,
+Arch/Manjaro) if it is missing.
 
 No installation required. Works completely offline.
 
@@ -38,6 +51,8 @@ The release ZIP ships with:
 | -------- | ----- | ------- |
 | English  | `en_US-danny-low` | low |
 | Spanish  | `es_ES-carlfm-x_low` | x_low |
+
+The Linux tarball ships the same voice models as the Windows ZIP.
 
 ## Adding more voices
 
@@ -87,6 +102,27 @@ pipper-tts-reader/
 `output/` is created next to the executable on first synthesis, so generated
 audio never mixes with the models folder. You can delete it any time.
 
+### Linux
+
+```
+piper-tts-reader-linux/
+├── piper-tts-reader        <- the app (Linux ELF)
+├── run.sh                  <- launcher (run ./run.sh)
+├── models/                 <- voice models (subfolders per language)
+│   └── ES/...
+├── piper-runtime/          <- Piper CLI + shared libraries (required)
+│   ├── piper
+│   ├── libespeak-ng.so*
+│   ├── libpiper_phonemize.so*
+│   ├── libonnxruntime.so*
+│   ├── libtashkeel_model.ort
+│   └── espeak-ng-data/
+└── output/                 <- generated WAVs (created automatically)
+```
+
+`run.sh` sets `LD_LIBRARY_PATH` to `piper-runtime/` so the bundled piper finds
+its libraries — Linux does not search next to the executable by default.
+
 ## Building from source
 
 ### Prerequisites
@@ -96,6 +132,8 @@ audio never mixes with the models folder. You can delete it any time.
 - Tauri v2 prerequisites for Windows
   ([WebView2](https://developer.microsoft.com/microsoft-edge/webview2/),
   MSVC or GNU toolchain)
+- Tauri v2 prerequisites for Linux
+  ([WebKitGTK 4.1](https://tauri.app/start/prerequisites/#linux))
 
 ### Commands
 
@@ -110,7 +148,8 @@ npm run tauri dev
 npm run tauri build -- --no-bundle
 ```
 
-The release binary is produced at `src-tauri/target/release/app.exe`.
+The release binary is produced at `src-tauri/target/release/app` on Linux and
+`src-tauri/target/release/app.exe` on Windows.
 
 ### Tests
 
@@ -133,13 +172,21 @@ cargo test
 
 3. Zip the folder and publish it as a GitHub release.
 
+### Bundling the portable Linux tarball
+
+1. Build on Linux with `npm run tauri build -- --no-bundle`
+2. Assemble the same folder layout as the Windows zip (`piper-tts-reader`,
+   `run.sh`, `models/`, `piper-runtime/`) — or run the CI workflow
+   `.github/workflows/build-linux-tarball.yml`, which does it automatically.
+3. `tar -czf Piper-TTS-Reader-linux-x86_64.tar.gz "Piper TTS Reader-linux-x86_64"`
+
 > **Tip:** remove `piper-tts-settings.json` (created after the first run) and
 > the `output/` folder before zipping — they are per-user state.
 
 ## How it works
 
 - The app embeds the frontend (Vite + TypeScript) inside the Tauri binary.
-- Synthesis runs the bundled `piper.exe` with the selected `.onnx` model and
+- Synthesis runs the bundled `piper` CLI (`piper.exe` on Windows) with the selected `.onnx` model and
   its `.onnx.json` config, feeding the text on stdin and reading the produced
   WAV.
 - The Piper runtime and the models folder are discovered next to the running

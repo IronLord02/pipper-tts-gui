@@ -2,3 +2,4 @@
 # espeak-ng-data contains both binary and text data; any line-ending change
 # can break phonemization on the target distro.
 runtimes/linux-x86_64/** -text
+*.sh text eol=lf

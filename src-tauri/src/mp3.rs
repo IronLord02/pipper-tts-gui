@@ -3,7 +3,7 @@
 //! The LAME encoder is compiled from source into the binary via
 //! `mp3lame-encoder` / `mp3lame-sys`, so conversion never shells out to an
 //! external ffmpeg/lame binary and never depends on the operating system. The
-//! same release build works on Windows (.exe), Linux (AppImage), and macOS.
+//! same release build works on Windows (.exe), Linux (portable tarball), and macOS.
 //!
 //! The flow is: parse the WAV `fmt ` + `data` chunks, feed the 16-bit PCM
 //! payload to LAME in bounded chunks (so multi-hour audiobooks never load into

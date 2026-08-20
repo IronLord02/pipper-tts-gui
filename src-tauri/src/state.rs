@@ -251,9 +251,8 @@ pub fn emit_event(state: tauri::State<'_, AppState>, event: String) -> Result<()
 
 /// Path of the persisted settings file: `<exe_dir>/piper-tts-settings.json`,
 /// falling back to `<data_dir>/piper-tts-gui/piper-tts-settings.json` when the
-/// exe dir is not writable or cannot be resolved (AppImage packages run from a
-/// read-only mount; the `paths` probe detects it the same way as the models
-/// directory).
+/// exe dir is not writable or cannot be resolved (the `paths` probe detects it
+/// the same way as the models directory).
 pub fn settings_file_path() -> PathBuf {
     let exe_dir = std::env::current_exe()
         .ok()
