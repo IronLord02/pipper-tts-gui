@@ -52,14 +52,24 @@ jobs:
           cp src-tauri/target/release/app "$PKG/piper-tts-reader"
           cp -r runtimes/linux-x86_64/. "$PKG/piper-runtime/"
           # Voice models are not committed to git (see .gitignore). Bundle them
-          # from the checkout when present; otherwise fetch the default voice
+          # from the checkout when present; otherwise fetch the full voice set
           # from the official rhasspy/piper-voices repository so the tarball
           # always ships with a working voice.
           if [ -d models ] && [ -n "$(ls -A models 2>/dev/null)" ]; then
             cp -r models/. "$PKG/models/"
           else
-            curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/carlfm/x_low/es_ES-carlfm-x_low.onnx" -o "$PKG/models/es_ES-carlfm-x_low.onnx"
-            curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/carlfm/x_low/es_ES-carlfm-x_low.onnx.json" -o "$PKG/models/es_ES-carlfm-x_low.onnx.json"
+            fetch_voice() {
+              local dir="$1" name="$2"
+              curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/$dir/$name.onnx" -o "$PKG/models/$name.onnx"
+              curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/$dir/$name.onnx.json" -o "$PKG/models/$name.onnx.json"
+            }
+            fetch_voice "es/es_ES/carlfm/x_low" "es_ES-carlfm-x_low"
+            fetch_voice "en/en_US/danny/low" "en_US-danny-low"
+            fetch_voice "pt/pt_BR/edresson/low" "pt_BR-edresson-low"
+            fetch_voice "de/de_DE/karlsson/low" "de_DE-karlsson-low"
+            fetch_voice "fr/fr_FR/gilles/low" "fr_FR-gilles-low"
+            fetch_voice "ru/ru_RU/denis/medium" "ru_RU-denis-medium"
+            fetch_voice "zh/zh_CN/huayan/x_low" "zh_CN-huayan-x_low"
           fi
           cp run.sh README.md "$PKG/"
           chmod +x "$PKG/piper-tts-reader" "$PKG/piper-runtime/piper" "$PKG/run.sh"

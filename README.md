@@ -24,8 +24,9 @@ Grab the latest release: [Releases](https://github.com/IronLord02/pipper-tts-gui
 
 Everything ships in the folder — the app, the piper runtime and the voice
 models. The only system requirement is WebKitGTK 4.1; `run.sh` detects your
-distribution and prints the exact install command (Debian/Ubuntu, Fedora/RHEL,
-Arch/Manjaro) if it is missing.
+distribution (Debian/Ubuntu, Fedora/RHEL, Arch/Manjaro) and installs it
+automatically — it will ask for your password. On other distributions it
+prints the manual install commands instead.
 
 No installation required. Works completely offline.
 
@@ -45,14 +46,19 @@ No installation required. Works completely offline.
 
 ## Included voices
 
-The release ZIP ships with:
+The release archives ship with the full voice set:
 
 | Language | Voice | Quality |
 | -------- | ----- | ------- |
-| English  | `en_US-danny-low` | low |
 | Spanish  | `es_ES-carlfm-x_low` | x_low |
+| English  | `en_US-danny-low` | low |
+| Portuguese (Brazil) | `pt_BR-edresson-low` | low |
+| German   | `de_DE-karlsson-low` | low |
+| French   | `fr_FR-gilles-low` | low |
+| Russian  | `ru_RU-denis-medium` | medium |
+| Chinese (Mandarin) | `zh_CN-huayan-x_low` | x_low |
 
-The Linux tarball ships the same voice models as the Windows ZIP.
+The Windows ZIP and the Linux tarball ship the same voice models.
 
 ## Adding more voices
 
