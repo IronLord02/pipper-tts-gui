@@ -1,0 +1,39 @@
+================================================================================
+PLAN: Paquete portable Linux (tar.gz + run.sh) — Piper TTS Reader
+Fecha: 20/08/2026
+Estado: Implementado (reemplaza al plan AppImage, eliminado)
+================================================================================
+
+1. OBJETIVO
+   Entregar Linux igual que el .zip de Windows: descomprimir -> ejecutar.
+   Sin AppImage, sin Flatpak, sin stores. Unico requisito de sistema:
+   WebKitGTK 4.1 (lo exige Tauri y no se puede empaquetar).
+
+2. ESTRUCTURA DEL PAQUETE (tar.gz)
+   Piper TTS Reader-linux-x86_64/
+     piper-tts-reader        <- binario Tauri (ELF)
+     run.sh                  <- lanzador (chmod +x)
+     README.md
+     piper-runtime/          <- piper + .so + espeak-ng-data (desde runtimes/linux-x86_64/)
+     models/                 <- voces .onnx + .onnx.json (desde models/)
+
+3. CLAVES TECNICAS
+   - run.sh exporta LD_LIBRARY_PATH=piper-runtime (Linux no busca .so junto
+     al binario; Windows sí). La app hereda el env al spawnear piper.
+   - La app resuelve piper-runtime/ y models/ junto al ejecutable -> misma
+     logica portable que el zip Windows, cero cambios de logica en Rust.
+   - WebKitGTK 4.1 se chequea en run.sh con mensaje de instalacion claro.
+
+4. CI
+   .github/workflows/build-linux-tarball.yml
+   ubuntu-latest: tauri build --no-bundle -> arma carpeta -> tar.gz -> artifact.
+
+5. RASTROS APPIMAGE ELIMINADOS
+   - .github/workflows/build-linux-appimage.yml (borrado)
+   - plans/appimage-plan.txt (borrado, reemplazado por este)
+   - tauri.conf.json: bundle.resources (borrado)
+   - synth.rs: RESOURCE_DIR / set_resource_dir / fallback resource dir (borrado)
+   - lib.rs: setup con set_resource_dir (borrado)
+   - Comentarios AppImage en synth.rs, state.rs, mp3.rs (actualizados)
+   - runtimes/README.md (actualizado)
+   - README.md (seccion Linux agregada)

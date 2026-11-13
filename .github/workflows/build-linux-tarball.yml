@@ -1,0 +1,83 @@
+name: build-linux-tarball
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build release binary
+        run: npm run tauri build -- --no-bundle
+
+      # Git on Windows cannot store the exec bit, so the packaged piper ELF and
+      # run.sh get it back here before the tarball is created.
+      - name: Assemble portable folder
+        run: |
+          set -euo pipefail
+          PKG="Piper TTS Reader-linux-x86_64"
+          rm -rf "$PKG"
+          mkdir -p "$PKG/piper-runtime" "$PKG/models"
+          cp src-tauri/target/release/app "$PKG/piper-tts-reader"
+          cp -r runtimes/linux-x86_64/. "$PKG/piper-runtime/"
+          # Voice models are not committed to git (see .gitignore). Bundle them
+          # from the checkout when present; otherwise fetch the full voice set
+          # from the official rhasspy/piper-voices repository so the tarball
+          # always ships with a working voice.
+          if [ -d models ] && [ -n "$(ls -A models 2>/dev/null)" ]; then
+            cp -r models/. "$PKG/models/"
+          else
+            fetch_voice() {
+              local dir="$1" name="$2"
+              curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/$dir/$name.onnx" -o "$PKG/models/$name.onnx"
+              curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/$dir/$name.onnx.json" -o "$PKG/models/$name.onnx.json"
+            }
+            fetch_voice "es/es_ES/carlfm/x_low" "es_ES-carlfm-x_low"
+            fetch_voice "en/en_US/danny/low" "en_US-danny-low"
+            fetch_voice "pt/pt_BR/edresson/low" "pt_BR-edresson-low"
+            fetch_voice "de/de_DE/karlsson/low" "de_DE-karlsson-low"
+            fetch_voice "fr/fr_FR/gilles/low" "fr_FR-gilles-low"
+            fetch_voice "ru/ru_RU/denis/medium" "ru_RU-denis-medium"
+            fetch_voice "zh/zh_CN/huayan/x_low" "zh_CN-huayan-x_low"
+          fi
+          cp run.sh README.md "$PKG/"
+          chmod +x "$PKG/piper-tts-reader" "$PKG/piper-runtime/piper" "$PKG/run.sh"
+          tar -czf Piper-TTS-Reader-linux-x86_64.tar.gz "$PKG"
+
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: piper-tts-reader-linux-tarball
+          path: Piper-TTS-Reader-linux-x86_64.tar.gz
+          if-no-files-found: error

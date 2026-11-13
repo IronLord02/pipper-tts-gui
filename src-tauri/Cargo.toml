@@ -1,0 +1,56 @@
+[package]
+name = "app"
+version = "0.1.0"
+description = "Local Piper TTS reader with a desktop GUI"
+edition = "2021"
+
+[lib]
+name = "app_lib"
+# Desktop-only crate: plain rlib. The template's cdylib/staticlib targets are
+# for mobile embedding and break GNU/MinGW linking ("export ordinal too large"
+# from ld when the cdylib exports the full Tauri symbol table).
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+# Used to embed the Common-Controls v6 manifest into test binaries (tauri
+# embeds it for bins only), required for `cargo test` to load on Windows.
+embed-resource = "3"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+# Streaming downloads (REQ-LIB-3..6). rustls + webpki roots avoids OpenSSL /
+# schannel assumptions on the GNU/MinGW toolchain; tests use a local HTTP
+# server, the TLS backend is for the real HuggingFace URLs at runtime.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "stream"] }
+# md5 verification of downloaded models against the catalog snapshot (REQ-LIB-4).
+md-5 = "0.10"
+# CancellationToken for in-flight download cancellation (REQ-LIB-6).
+tokio-util = { version = "0.7", features = ["rt"] }
+# Native save/open dialogs for the conversion view (frontend @tauri-apps/plugin-dialog).
+tauri-plugin-dialog = "2"
+# PDF text extraction for the Load file command.
+pdf-extract = "0.8"
+# Async process spawn + wait timeout for the piper sidecar (synthesis).
+tokio = { version = "1", features = ["process", "time", "io-util", "macros"] }
+# Per-sentence temp WAV staging for real synthesis progress (auto-cleanup).
+tempfile = "3"
+# Local WAV -> MP3 conversion: the LAME encoder is compiled from source into
+# the binary (no external ffmpeg/lame binary), so the same build works on
+# Windows, Linux, and macOS.
+mp3lame-encoder = "0.2"
+
+[dev-dependencies]
+# Async runtime for the download tests, including the tiny local HTTP server
+# (T-08 accept criteria).
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "time"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
